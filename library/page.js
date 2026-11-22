@@ -150,7 +150,7 @@ function openSheet(id) {
   closeSheet();
   if (!w) return;
   state.open = id;
-  const kv = [["作者", w.creator], ["レベル", w.level], ["ジャンル", w.genre], ["長さ", w.length || w.format], ["場所", join(TAB_JA[w.tab], w.where, w.site, w.platform)],
+  const kv = [["作者", w.creator], ["シリーズ", w.seriesName], ["レベル", w.level], ["ジャンル", w.genre], ["長さ", w.length || w.format], ["場所", join(TAB_JA[w.tab], w.where, w.site, w.platform)],
     ["Steam", w.appid && steam.games[w.appid] ? `合計 ${steam.games[w.appid].total_h}時間 · 30日で ${steam.h30[w.appid] || 0}時間` : null],
     ["BookWalker", w.progress]].filter(r => r[1]);
   const notes = journal.filter(e => e.work === w.title).length + cards.filter(c => c.source === w.title).length;
