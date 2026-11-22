@@ -1,15 +1,17 @@
-import { h, $, clear, topbar, setSync, ago, toast } from "../lib/core.js";
+import { h, $, clear, topbar, setSync, ago, toast, local, setLocal } from "../lib/core.js";
 import * as data from "../lib/data.js";
+import * as covers from "../lib/covers.js";
 import { TYPES, loadLibrary, statusLabel, setStatus, setRating, nextVolume, dismiss, pending } from "../lib/library.js";
 import { loadSteam, loadJournal, loadHiroicho } from "../lib/sources.js";
+import { renderBookroom, coverEl } from "./shelf.js";
 
 topbar("library");
 
 const params = new URLSearchParams(location.search);
-const state = { type: params.get("t") || "books", filter: "all", q: params.get("q") || "", open: params.get("w"), limit: 150 };
+const state = { type: params.get("t") || "books", filter: "all", q: params.get("q") || "", open: params.get("w"), limit: 150,
+  view: local("jphub.libView", "shelf"), sort: local("jphub.bookSort", "genre") };
 if (params.get("q") && !params.get("t")) state.type = "all";
 let lib = { works: [] }, steam = { h30: {}, games: {}, playing: [] }, journal = [], cards = [];
-let covers = null, games = null;
 
 const TAB_JA = { Ebooks: "電子書籍", Novels: "単行本", Bunko: "文庫", "Nonfiction & Essays": "ノンフィクション", Manga: "紙のマンガ",
   "BookWalker Manga": "BookWalker", "Games (PC)": "PC · Steam", "Games (PS3)": "PS3", "Online stories": "ウェブ小説",
@@ -17,37 +19,14 @@ const TAB_JA = { Ebooks: "電子書籍", Novels: "単行本", Bunko: "文庫", "
 const FILTERS = [["all", "すべて"], ["use", "進行中"], ["hold", "保留"], ["done", "完了"], ["none", "未着手"]];
 const ORDER = { use: 0, hold: 1, none: 2, done: 3, dropped: 4 };
 const join = (...p) => p.filter(Boolean).join(" · ");
-
-// ---------- covers ----------
-const seen = new IntersectionObserver(entries => {
-  for (const e of entries) if (e.isIntersecting) { seen.unobserve(e.target); e.target._load?.(); }
-}, { rootMargin: "300px" });
-
-function cover(w) {
-  const el = h("span", { class: "cover", text: w.title.slice(0, 1) });
-  if (w.type?.id === "books" && covers?.[w.title]) {
-    el._load = async () => {
-      const url = await data.imageURL("covers/books/" + covers[w.title]);
-      if (url) { el.textContent = ""; el.append(h("img", { class: "cover", src: url, alt: "" })); }
-    };
-    seen.observe(el);
-  } else if (w.appid && games?.[w.appid]?.sp) {
-    const [sheet, col, rowN] = games[w.appid].sp;
-    el._load = async () => {
-      const url = await data.imageURL(`covers/games/covers-${String(sheet).padStart(2, "0")}.webp`);
-      if (!url) return;
-      el.textContent = "";
-      el.classList.add("sprite");
-      el.style.backgroundImage = `url("${url}")`;
-      el.style.backgroundSize = "1000% 1000%";
-      el.style.backgroundPosition = `${col / 9 * 100}% ${rowN / 9 * 100}%`;
-    };
-    seen.observe(el);
-  }
-  return el;
-}
+const shelfView = () => state.type === "books" && state.view === "shelf";
 
 // ---------- list ----------
+function cover(w) {
+  const el = h("span", { class: "cover", text: w.title.slice(0, 1) });
+  covers.show(el, w, url => { el.textContent = ""; el.append(h("img", { class: "cover", src: url, alt: "" })); });
+  return el;
+}
 function matches(w) {
   if (state.type !== "all" && w.type?.id !== state.type) return false;
   if (state.filter !== "all" && w.cls !== state.filter) return false;
@@ -80,32 +59,38 @@ function render() {
     return n ? h("button", { class: "chip", type: "button", "aria-pressed": String(state.type === t.id),
       onclick: () => go({ type: t.id, limit: 150 }) }, t.ja, h("span", { class: "n", text: n })) : null;
   }));
-  clear($("#filters")).append(...FILTERS.map(([id, ja]) => {
+  const shelf = shelfView();
+  // On the shelf nothing is filtered away: books that don't match the search dim in place.
+  clear($("#filters")).append(...(shelf ? [] : FILTERS.map(([id, ja]) => {
     const n = id === "all" ? inType.length : inType.filter(w => w.cls === id).length;
     return h("button", { class: "chip", type: "button", "aria-pressed": String(state.filter === id),
       onclick: () => go({ filter: id, limit: 150 }) }, ja, h("span", { class: "n", text: n }));
-  }));
-  const type = TYPES.find(t => t.id === state.type);
-  const shown = lib.works.filter(matches).sort((a, b) => ORDER[a.cls] - ORDER[b.cls]);
-  $("#listTitle").textContent = type ? type.ja : "検索結果";
-  $("#count").textContent = `${shown.length}件`;
-  const tools = clear($("#tools"));
-  if (state.type === "books") tools.append(h("a", { href: "https://claude.ai/artifact/SbP6kVYxMH572m9FYKbYfT", target: "_blank", rel: "noopener", text: "AIで選ぶ ↗" }));
-  const list = clear($("#list"));
-  if (!shown.length) list.append(h("p", { class: "empty", text: lib.empty ? "データがありません。設定で接続してください。" : "該当するものはありません。" }));
-  list.append(...shown.slice(0, state.limit).map(workRow));
-  if (shown.length > state.limit) list.append(h("button", { class: "work", type: "button", onclick: () => go({ limit: state.limit + 300 }) },
-    h("span", {}), h("span", { class: "sub", text: `さらに表示（残り${shown.length - state.limit}件）` }), h("span", {})));
+  })));
+  if (state.type === "books") $("#filters").append(
+    h("button", { class: "chip", type: "button", "aria-pressed": String(shelf), text: "棚", onclick: () => setView("shelf") }),
+    h("button", { class: "chip", type: "button", "aria-pressed": String(!shelf), text: "一覧", onclick: () => setView("list") }),
+    h("a", { class: "chip", href: "https://claude.ai/artifact/SbP6kVYxMH572m9FYKbYfT", target: "_blank", rel: "noopener", text: "AIで選ぶ ↗" }));
+
+  $("#listPanel").hidden = shelf;
+  $("#room").hidden = !shelf;
+  if (shelf) {
+    renderBookroom($("#room"), lib.works.filter(w => w.type?.id === "books"), { onOpen: openSheet, query: state.q, sort: state.sort,
+      selected: state.open, onSort: s => { setLocal("jphub.bookSort", s); go({ sort: s }); } });
+  } else {
+    const type = TYPES.find(t => t.id === state.type);
+    const shown = lib.works.filter(matches).sort((a, b) => ORDER[a.cls] - ORDER[b.cls]);
+    $("#listTitle").textContent = type ? type.ja : "検索結果";
+    $("#count").textContent = `${shown.length}件`;
+    const list = clear($("#list"));
+    if (!shown.length) list.append(h("p", { class: "empty", text: lib.empty ? "データがありません。設定で接続してください。" : "該当するものはありません。" }));
+    list.append(...shown.slice(0, state.limit).map(workRow));
+    if (shown.length > state.limit) list.append(h("button", { class: "work", type: "button", onclick: () => go({ limit: state.limit + 300 }) },
+      h("span", {}), h("span", { class: "sub", text: `さらに表示（残り${shown.length - state.limit}件）` }), h("span", {})));
+  }
   renderExtra();
 }
-async function go(change) {
-  Object.assign(state, change);
-  if (state.type === "games" && !games) {
-    const g = (await data.read("static/games/data.json").catch(() => ({}))).data || [];
-    games = Object.fromEntries(g.map(x => [String(x.i), x]));
-  }
-  render();
-}
+function setView(view) { setLocal("jphub.libView", view); go({ view }); }
+function go(change) { Object.assign(state, change); render(); }
 
 // ---------- 音声: draw three episodes (the old Nihongo Dial) ----------
 let dial = null, drawn = [];
@@ -139,6 +124,7 @@ const STATUS_BUTTONS = [["none", "Not started"], ["use", null], ["hold", "On hol
 function closeSheet() {
   document.querySelector(".scrim")?.remove();
   document.querySelector(".sheet")?.remove();
+  document.querySelector(".spine.sel")?.classList.remove("sel");
   state.open = null;
 }
 async function act(promise, okText) {
@@ -150,15 +136,19 @@ function openSheet(id) {
   closeSheet();
   if (!w) return;
   state.open = id;
+  // On the shelf the chosen book slides out a little, as if pulled by a finger.
+  for (const s of document.querySelectorAll(".spine")) if (s.dataset.id === id) s.classList.add("sel");
   const kv = [["作者", w.creator], ["シリーズ", w.seriesName], ["レベル", w.level], ["ジャンル", w.genre], ["長さ", w.length || w.format], ["場所", join(TAB_JA[w.tab], w.where, w.site, w.platform)],
     ["Steam", w.appid && steam.games[w.appid] ? `合計 ${steam.games[w.appid].total_h}時間 · 30日で ${steam.h30[w.appid] || 0}時間` : null],
     ["BookWalker", w.progress]].filter(r => r[1]);
   const notes = journal.filter(e => e.work === w.title).length + cards.filter(c => c.source === w.title).length;
   const wanted = pending()[w.id]?.status;
+  const heading = h("div", {}, h("h2", { text: w.title }), w.en ? h("p", { class: "en", text: w.en }) : null);
+  const showCover = w.type?.id === "books" || (covers.has(w) && !w.appid);
 
   const body = h("aside", { class: "sheet", role: "dialog", "aria-label": w.title },
     h("button", { class: "close", type: "button", onclick: closeSheet, text: "閉じる ✕" }),
-    h("div", {}, h("h2", { text: w.title }), w.en ? h("p", { class: "en", text: w.en }) : null),
+    showCover ? h("div", { class: "hero" }, coverEl(w), heading) : heading,
 
     w.conflict ? h("div", { class: "notice" },
       h("span", { text: `シートでは「${w.conflict.current || "空欄"}」になっています。` }),
@@ -202,10 +192,10 @@ let retry = 0;
 async function load() {
   setSync("busy", "読み込み中…");
   try {
-    [lib, steam, journal, cards] = await Promise.all([loadLibrary(), loadSteam(), loadJournal(), loadHiroicho()]);
-    if (!covers) covers = (await data.read("covers/books.json").catch(() => ({}))).data || {};
-    await go({});
-    if (state.open) openSheet(state.open);
+    [lib, steam, journal, cards] = await Promise.all([loadLibrary(), loadSteam(), loadJournal(), loadHiroicho(), covers.load()]);
+    const reopen = state.open;
+    render();
+    if (reopen) openSheet(reopen);
     const waiting = Object.values(pending()).some(p => !p.conflict && !p.failed);
     const label = data.mode === "dev" ? "サンプルデータ" : data.mode === "none" ? "未接続" : lib.stale ? "オフライン" : "同期済み";
     setSync(waiting ? "busy" : lib.stale || data.mode === "none" ? "bad" : "ok", `${label} · シート ${ago(lib.at)}`, load);

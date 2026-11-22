@@ -47,11 +47,17 @@ def adapters(args):
 
 def main(argv=None):
     p = argparse.ArgumentParser()
-    p.add_argument("job", choices=["snapshot", "outbox", "steam", "articles"])
+    p.add_argument("job", choices=["snapshot", "outbox", "steam", "articles", "covers"])
     p.add_argument("--data", required=True)
     p.add_argument("--fixture", action="store_true")
+    p.add_argument("--limit", type=int, default=int(os.environ.get("COVERS_LIMIT") or 40))
     args = p.parse_args(argv)
     now = now_iso()
+
+    if args.job == "covers":      # needs no credentials: it reads the snapshots and public pages
+        import covers
+        print(json.dumps(covers.run(args.data, now, limit=args.limit), ensure_ascii=False))
+        return 0
 
     sheet, articles = adapters(args)
     if args.job == "steam":
