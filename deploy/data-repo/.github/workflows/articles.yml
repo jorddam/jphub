@@ -20,12 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with: { repository: jorddam/jphub, path: .hub }
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
-      - run: python .hub/jobs/run.py articles --data .
+      - run: python3 .hub/jobs/run.py articles --data .
         env:
           AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
           AIRTABLE_BASE: ${{ vars.AIRTABLE_BASE }}

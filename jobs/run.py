@@ -7,7 +7,7 @@
 With --fixture the jobs use the JSON stand-in sheet in <data>/_sheet instead of
 Google, so the whole loop can run on a PC with no credentials.
 In a GitHub Action the credentials come from the environment:
-  GOOGLE_ACCESS_TOKEN, SHEET_ID, AIRTABLE_TOKEN, AIRTABLE_BASE, AIRTABLE_TABLE
+  GOOGLE_SA_JSON, SHEET_ID, AIRTABLE_TOKEN, AIRTABLE_BASE, AIRTABLE_TABLE
 """
 import argparse
 import datetime
@@ -31,10 +31,13 @@ def adapters(args):
     if args.fixture:
         return FixtureSheet(os.path.join(args.data, "_sheet")), FixtureArticles(args.data)
     sheet = None
-    if os.environ.get("GOOGLE_ACCESS_TOKEN"):
+    if os.environ.get("GOOGLE_SA_JSON"):
+        from lib.google_auth import access_token
+        sheet = GoogleSheet(os.environ["SHEET_ID"], access_token(os.environ["GOOGLE_SA_JSON"]))
+    elif os.environ.get("GOOGLE_ACCESS_TOKEN"):
         sheet = GoogleSheet(os.environ["SHEET_ID"], os.environ["GOOGLE_ACCESS_TOKEN"])
     elif args.job in ("snapshot", "outbox"):
-        raise SystemExit("GOOGLE_ACCESS_TOKEN and SHEET_ID are required for this job")
+        raise SystemExit("GOOGLE_SA_JSON and SHEET_ID are required for this job")
     articles = None
     if os.environ.get("AIRTABLE_TOKEN"):
         articles = AirtableArticles(os.environ["AIRTABLE_TOKEN"], os.environ["AIRTABLE_BASE"],
