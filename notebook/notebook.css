@@ -1,0 +1,51 @@
+/* ノート — a reading surface. One column of notes; open one to read it in full. */
+.nb { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 900px) { .nb { grid-template-columns: 230px minmax(0, 1fr); } .rail { position: sticky; top: 16px; } }
+.rail { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.stream, .body { grid-template-columns: minmax(0, 1fr); }
+.rail h3 { margin: 0 0 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: var(--muted); }
+.rail .worklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 46vh; overflow-y: auto; }
+.rail .worklist button { width: 100%; text-align: left; background: none; border: 0; padding: 6px 8px; border-radius: 8px; cursor: pointer;
+  display: flex; gap: 8px; justify-content: space-between; font-size: 13.5px; color: var(--muted); }
+.rail .worklist button:hover { background: var(--hover); color: var(--ink); }
+.rail .worklist button[aria-pressed="true"] { background: var(--panel2); color: var(--ink); font-weight: 700; }
+.rail .worklist .n { font-family: var(--label); opacity: 0.7; }
+.srcs { font-size: 12.5px; color: var(--muted); display: grid; gap: 3px; }
+.srcs .off { color: var(--faint); }
+@media (max-width: 899px) { .rail .worklist { display: flex; flex-wrap: nowrap; overflow-x: auto; max-height: none; } .rail .worklist button { white-space: nowrap; } }
+
+.stream { display: grid; gap: 10px; }
+.month { margin: 10px 0 0; font-family: var(--label); font-weight: 600; font-size: 14px; letter-spacing: 0.08em; color: var(--muted); }
+.note { background: var(--panel); border: 1px solid var(--rule); border-left: 4px solid var(--c); border-radius: 12px; overflow: hidden; }
+.note > summary { list-style: none; cursor: pointer; padding: 12px 16px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; }
+.note > summary::-webkit-details-marker { display: none; }
+.note > summary:hover { background: var(--hover); }
+.note .head { font-family: var(--serif); font-size: 21px; font-weight: 700; line-height: 1.5; overflow-wrap: anywhere; }
+.note.quote .head, .note.memo .head { font-size: 16px; }
+.note.quote .head { font-weight: 500; }
+.note .gl { grid-column: 1; color: var(--muted); font-size: 14px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.note[open] .gl { -webkit-line-clamp: unset; }
+.note .meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; font-size: 12.5px; color: var(--faint); }
+.note .when { grid-row: 1; grid-column: 2; font-family: var(--label); font-size: 13px; color: var(--faint); white-space: nowrap; }
+ruby rt { font-size: 0.5em; font-family: var(--display); font-weight: 500; color: var(--muted); }
+
+.body { padding: 4px 16px 18px; display: grid; gap: 16px; border-top: 1px solid var(--rule); }
+.body h4 { margin: 0 0 4px; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: var(--muted); }
+.body p { margin: 0; overflow-wrap: anywhere; }
+.body .ja { font-family: var(--serif); font-size: 17px; line-height: 1.9; }
+.ctx { margin: 0; padding: 12px 16px; border-left: 3px solid var(--c); background: var(--panel2); border-radius: 0 10px 10px 0; font-family: var(--serif); font-size: 17px; line-height: 2; }
+mark { background: #ffb00033; color: inherit; border-bottom: 2px solid var(--board-amber); padding: 0 1px; }
+.ex { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.ex .ja { display: block; } .ex .en { display: block; font-family: var(--display); font-size: 13.5px; letter-spacing: 0; }
+.mine { padding: 10px 14px; border-radius: 10px; border: 1px dashed var(--rule); font-size: 14px; }
+.reply { padding: 10px 14px; border-radius: 10px; background: var(--panel2); font-size: 14px; }
+.form2 { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 14px; }
+.form2 dt { color: var(--muted); } .form2 dd { margin: 0; }
+.xp { padding: 12px 14px; border-radius: 10px; border: 1px solid var(--n); background: #b48cf20f; display: grid; gap: 6px; }
+.xp .q { font-size: 12.5px; color: var(--muted); }
+.xp .a { white-space: pre-wrap; font-size: 15px; line-height: 1.75; overflow-wrap: anywhere; }
+.xp .m { font-size: 11.5px; color: var(--faint); font-family: var(--label); }
+.ask { display: grid; gap: 8px; }
+.ask .row { display: flex; gap: 8px; }
+.composer { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 12px 16px; display: grid; gap: 8px; }
+.composer textarea { min-height: 76px; resize: vertical; }

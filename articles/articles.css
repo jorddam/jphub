@@ -1,0 +1,14 @@
+.days { display: grid; gap: 22px; }
+.dayh { margin: 0 0 8px; font-family: var(--label); font-weight: 600; font-size: 15px; letter-spacing: 0.06em; color: var(--muted); }
+.arts { display: grid; gap: 10px; }
+.art { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 14px 16px; display: grid; gap: 8px; }
+.art.read { opacity: 0.62; }
+.art h3 { margin: 0; font-family: var(--serif); font-size: 19px; line-height: 1.55; font-weight: 700; }
+.art h3 a { text-decoration: none; }
+.art h3 a:hover { text-decoration: underline; }
+.art .en { font-size: 14px; }
+.art .hook { margin: 0; font-size: 14px; color: var(--ink); opacity: 0.88; }
+.art .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.art details summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.art .vocab { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 14.5px; }
+.art .foot2 { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }

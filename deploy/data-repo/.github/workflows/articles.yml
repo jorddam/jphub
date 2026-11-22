@@ -1,0 +1,38 @@
+# Copies the Airtable Reading Feed (the daily five) into snapshots/articles/.
+name: articles
+on:
+  schedule:
+    - cron: "30 11 * * *"    # 06:30 Eastern in winter, after the morning crawl
+    - cron: "0 13 * * *"     # retry at 08:00
+  workflow_dispatch:
+
+concurrency:
+  group: data-writers
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: jorddam/jphub, path: .hub }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: python .hub/jobs/run.py articles --data .
+        env:
+          AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+          AIRTABLE_BASE: ${{ vars.AIRTABLE_BASE }}
+          AIRTABLE_TABLE: ${{ vars.AIRTABLE_TABLE }}
+      - name: Commit
+        run: |
+          rm -rf .hub
+          git config user.name "jphub jobs"
+          git config user.email "jobs@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "articles $(date -u +%FT%TZ)"
+          git pull --rebase --autostash && git push

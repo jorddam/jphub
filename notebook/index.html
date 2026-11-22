@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://api.github.com https://api.anthropic.com; base-uri 'none'; form-action 'none'">
+<meta name="theme-color" content="#0f1215">
+<title>ノート · 日本語ハブ</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Zen+Old+Mincho:wght@500;700&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../lib/ui.css">
+<link rel="stylesheet" href="notebook.css">
+</head>
+<body>
+<main class="wrap">
+  <header id="top"></header>
+  <div class="toolbar">
+    <input class="search" id="q" type="search" placeholder="ノートを探す（単語・文・メモ）" aria-label="検索">
+    <div class="chips" id="kinds" role="group" aria-label="種類"></div>
+  </div>
+  <div class="nb">
+    <aside class="rail">
+      <div><h3>作品</h3><ul class="worklist" id="works"></ul></div>
+      <div><h3>集めている場所</h3><div class="srcs" id="srcs"></div></div>
+    </aside>
+    <div class="stream" id="stream"><p class="empty">読み込み中…</p></div>
+  </div>
+</main>
+<script type="module" src="page.js"></script>
+</body>
+</html>

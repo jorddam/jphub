@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://api.github.com; base-uri 'none'; form-action 'none'">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="日本語ハブ">
+<meta name="theme-color" content="#0f1215">
+<title>日本語ハブ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="lib/ui.css">
+</head>
+<body>
+<main class="wrap">
+  <header id="top"></header>
+
+  <section class="board" aria-labelledby="boardH">
+    <header class="bh"><h2 id="boardH">発車案内</h2><span class="clock" id="clock"></span></header>
+    <ul class="blist" id="blist"></ul>
+    <p class="bempty" id="bempty" hidden>本日の予定はすべて発車済みです。おつかれさまでした。</p>
+  </section>
+
+  <h2 class="sectitle">いま</h2>
+  <div class="now" id="now"><p class="empty">読み込み中…</p></div>
+
+  <h2 class="sectitle">きょう</h2>
+  <div class="now" id="today"></div>
+
+  <h2 class="sectitle">路線図</h2>
+  <section class="line" id="pinned" hidden></section>
+  <div class="map" id="map"></div>
+  <details class="line" id="depot"></details>
+
+  <footer class="foot">
+    <p>「いま」は各アプリのデータから集めています。状態を変えると、メディアライブラリのシートに反映されます。</p>
+    <p>Claudeの駅は、使うたびにClaudeが必要なのでClaude側に置いたままです。</p>
+  </footer>
+</main>
+<script type="module" src="home.js"></script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+# Applies the change requests the apps leave in outbox/pending/ to the sheet (and Airtable),
+# then refreshes the snapshot. Copy this folder into the private jphub-data repo.
+name: outbox
+on:
+  push:
+    paths: ["outbox/pending/**"]
+  schedule:
+    - cron: "41 */2 * * *"   # backstop, every two hours
+  workflow_dispatch:
+
+# Every job that commits to this repo takes its turn.
+concurrency:
+  group: data-writers
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      # The job code lives in the public hub repo, which the token on your devices cannot change.
+      - uses: actions/checkout@v4
+        with: { repository: jorddam/jphub, path: .hub }
+      - id: google
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GOOGLE_SA_JSON }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/spreadsheets
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: python .hub/jobs/run.py outbox --data .
+        env:
+          GOOGLE_ACCESS_TOKEN: ${{ steps.google.outputs.access_token }}
+          SHEET_ID: ${{ vars.SHEET_ID }}
+          AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+          AIRTABLE_BASE: ${{ vars.AIRTABLE_BASE }}
+          AIRTABLE_TABLE: ${{ vars.AIRTABLE_TABLE }}
+      - name: Commit
+        run: |
+          rm -rf .hub
+          git config user.name "jphub jobs"
+          git config user.email "jobs@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "outbox $(date -u +%FT%TZ)"
+          git pull --rebase --autostash && git push
