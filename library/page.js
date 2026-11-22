@@ -4,12 +4,15 @@ import * as covers from "../lib/covers.js";
 import { TYPES, loadLibrary, statusLabel, setStatus, setRating, nextVolume, dismiss, pending } from "../lib/library.js";
 import { loadSteam, loadJournal, loadHiroicho } from "../lib/sources.js";
 import { renderBookroom, coverEl } from "./shelf.js";
+import { renderTiles } from "./tiles.js";
 
 topbar("library");
 
 const params = new URLSearchParams(location.search);
+// Each library remembers its own view: books default to the shelf, everything else to cover tiles.
 const state = { type: params.get("t") || "books", filter: "all", q: params.get("q") || "", open: params.get("w"), limit: 150,
-  view: local("jphub.libView", "shelf"), sort: local("jphub.bookSort", "genre") };
+  views: local("jphub.libViews", {}), sort: local("jphub.bookSort", "genre") };
+const viewOf = type => state.views[type] || (type === "books" ? "shelf" : type === "all" ? "list" : "tiles");
 if (params.get("q") && !params.get("t")) state.type = "all";
 let lib = { works: [] }, steam = { h30: {}, games: {}, playing: [] }, journal = [], cards = [];
 
@@ -19,7 +22,8 @@ const TAB_JA = { Ebooks: "電子書籍", Novels: "単行本", Bunko: "文庫", "
 const FILTERS = [["all", "すべて"], ["use", "進行中"], ["hold", "保留"], ["done", "完了"], ["none", "未着手"]];
 const ORDER = { use: 0, hold: 1, none: 2, done: 3, dropped: 4 };
 const join = (...p) => p.filter(Boolean).join(" · ");
-const shelfView = () => state.type === "books" && state.view === "shelf";
+const shelfView = () => state.type === "books" && viewOf("books") === "shelf";
+const tilesView = () => state.type !== "books" && viewOf(state.type) === "tiles";
 
 // ---------- list ----------
 function cover(w) {
@@ -66,18 +70,24 @@ function render() {
     return h("button", { class: "chip", type: "button", "aria-pressed": String(state.filter === id),
       onclick: () => go({ filter: id, limit: 150 }) }, ja, h("span", { class: "n", text: n }));
   })));
-  if (state.type === "books") $("#filters").append(
-    h("button", { class: "chip", type: "button", "aria-pressed": String(shelf), text: "棚", onclick: () => setView("shelf") }),
-    h("button", { class: "chip", type: "button", "aria-pressed": String(!shelf), text: "一覧", onclick: () => setView("list") }),
-    h("a", { class: "chip", href: "https://claude.ai/artifact/SbP6kVYxMH572m9FYKbYfT", target: "_blank", rel: "noopener", text: "AIで選ぶ ↗" }));
+  const tiles = tilesView();
+  if (state.type !== "all") $("#filters").append(...[
+    h("button", { class: "chip", type: "button", "aria-pressed": String(shelf || tiles), text: state.type === "books" ? "棚" : "タイル",
+      onclick: () => setView(state.type === "books" ? "shelf" : "tiles") }),
+    h("button", { class: "chip", type: "button", "aria-pressed": String(!shelf && !tiles), text: "一覧", onclick: () => setView("list") }),
+    state.type === "books" ? h("a", { class: "chip", href: "https://claude.ai/artifact/SbP6kVYxMH572m9FYKbYfT", target: "_blank", rel: "noopener", text: "AIで選ぶ ↗" }) : null,
+  ].filter(Boolean));
 
-  $("#listPanel").hidden = shelf;
-  $("#room").hidden = !shelf;
+  $("#listPanel").hidden = shelf || tiles;
+  $("#room").hidden = !shelf && !tiles;
+  const type = TYPES.find(t => t.id === state.type);
   if (shelf) {
     renderBookroom($("#room"), lib.works.filter(w => w.type?.id === "books"), { onOpen: openSheet, query: state.q, sort: state.sort,
       selected: state.open, onSort: s => { setLocal("jphub.bookSort", s); go({ sort: s }); } });
+  } else if (tiles) {
+    renderTiles($("#room"), lib.works.filter(matches).sort((a, b) => ORDER[a.cls] - ORDER[b.cls]), { onOpen: openSheet, steam, type,
+      limit: state.limit, onMore: () => go({ limit: state.limit + 300 }) });
   } else {
-    const type = TYPES.find(t => t.id === state.type);
     const shown = lib.works.filter(matches).sort((a, b) => ORDER[a.cls] - ORDER[b.cls]);
     $("#listTitle").textContent = type ? type.ja : "検索結果";
     $("#count").textContent = `${shown.length}件`;
@@ -89,7 +99,11 @@ function render() {
   }
   renderExtra();
 }
-function setView(view) { setLocal("jphub.libView", view); go({ view }); }
+function setView(view) {
+  const views = { ...state.views, [state.type]: view };
+  setLocal("jphub.libViews", views);
+  go({ views });
+}
 function go(change) { Object.assign(state, change); render(); }
 
 // ---------- 音声: draw three episodes (the old Nihongo Dial) ----------

@@ -5,7 +5,8 @@ source, chosen by the kind of item:
 
   PC games            Steam, by app id
   BookWalker manga    the item's own BookWalker link
-  books, print manga  a BookWalker search for "title author"
+  books, print manga,
+  wishlist            a BookWalker search for "title author"
   video, podcasts     the channel page's image
 
 A cover is saved as covers/<tab>/<key>.jpg (at most 300 px wide) and recorded
@@ -29,9 +30,9 @@ from lib.library import status_class, vol_sort_key
 
 UA = "Mozilla/5.0 (personal library cover fetcher)"
 STEAM = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps"
-SEARCH_TABS = {"ebooks", "novels", "bunko", "nonfiction", "manga"}
+SEARCH_TABS = {"ebooks", "novels", "bunko", "nonfiction", "manga", "wishlist"}
 LINK_TABS = {"bookwalker", "video", "podcasts"}
-ORDER = ["ebooks", "manga", "bookwalker", "novels", "bunko", "nonfiction", "games-pc", "video", "podcasts"]
+ORDER = ["ebooks", "manga", "bookwalker", "novels", "bunko", "nonfiction", "games-pc", "video", "podcasts", "wishlist"]
 MAX_WIDTH = 300
 RETRY_DAYS = 14
 MAX_TRIES = 3

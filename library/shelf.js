@@ -29,11 +29,13 @@ export function family(w) {
 function hash(s) { let x = 2166136261; for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 16777619); } return x >>> 0; }
 const levelOf = w => { const m = /N(\d(?:\.\d)?)/.exec(w.level || ""); return m ? parseFloat(m[1]) : 9; };
 
-// A cover: the picture when there is one, the title set vertically on genre colour when there isn't.
+// A cover: the picture when there is one, the title set vertically on a spine colour when there isn't.
+// Books take their genre's colour; everything else gets a steady colour of its own from the same palette.
 export function coverEl(w) {
-  const text = h("div", { class: "cov cov-t c-" + family(w), "aria-hidden": "true" }, h("span", { text: w.title }));
+  const colour = w.type?.id === "books" ? family(w) : FAMILIES[hash(w.key || w.title) % FAMILIES.length][0];
+  const text = h("div", { class: "cov cov-t c-" + colour, "aria-hidden": "true" }, h("span", { text: w.title }));
   covers.show(text, w, url => {
-    const img = h("img", { class: "cov c-" + family(w), src: url, alt: "" });
+    const img = h("img", { class: "cov c-" + colour, src: url, alt: "" });
     img.addEventListener("error", () => img.replaceWith(text));
     text.replaceWith(img);
   });
