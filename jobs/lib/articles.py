@@ -2,6 +2,7 @@
 import glob
 import json
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -46,9 +47,14 @@ class AirtableArticles:
     def _call(self, method, url, body=None):
         data = json.dumps(body).encode("utf-8") if body is not None else None
         req = urllib.request.Request(url, data=data, method=method, headers={
-            "Authorization": "Bearer " + self.token, "Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=60) as res:
-            return json.loads(res.read().decode("utf-8"))
+            "Authorization": "Bearer " + self.token, "Content-Type": "application/json",
+            "User-Agent": "jphub-jobs/1"})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as res:
+                return json.loads(res.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            # Airtable's error body says which permission or id is wrong; it holds no secret.
+            raise SystemExit("Airtable answered %s: %s" % (e.code, e.read().decode("utf-8", "replace")[:400]))
 
     def set_read(self, record_id, value):
         url = "https://api.airtable.com/v0/%s/%s/%s" % (self.base, self.table, record_id)
