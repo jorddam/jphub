@@ -18,6 +18,8 @@ permissions:
 
 jobs:
   run:
+    # Skipped until the repo's variables and secrets are set (see setup).
+    if: ${{ vars.SHEET_ID != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
