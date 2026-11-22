@@ -21,6 +21,7 @@ import os
 import re
 import time
 import unicodedata
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -118,11 +119,21 @@ def find_image(net, slug, work):
         return net.get(image), image
     if slug in SEARCH_TABS:
         query = " ".join(x for x in (work["title"], (work.get("creator") or "").split(",")[0].split("(")[0].strip()) if x)
-        page = net.text("https://bookwalker.jp/search/?" + urllib.parse.urlencode({"word": query}))
+        try:
+            page = net.text("https://bookwalker.jp/search/?" + urllib.parse.urlencode({"word": query}))
+        except urllib.error.HTTPError as e:
+            if e.code == 404:       # BookWalker answers 404 when a search has no results
+                raise LookupError("search found nothing")
+            raise
         links = list(dict.fromkeys(re.findall(r"https://bookwalker\.jp/de[0-9a-f-]+/", page)))[:6]
         if not links:
             raise LookupError("search found nothing")
-        pages = {link: net.text(link) for link in links}
+        pages = {}
+        for link in links:
+            try:
+                pages[link] = net.text(link)
+            except Exception:       # one dead result must not sink the others
+                continue
         link = pick([(l, og(p, "title") or "") for l, p in pages.items()], title_core(work["title"]), slug == "manga")
         if not link:
             raise LookupError("no result with this title")
