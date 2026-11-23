@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://api.github.com; base-uri 'none'; form-action 'none'">
+<meta name="theme-color" content="#0f1215">
+<title>地図 · ノート · 日本語ハブ</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Zen+Old+Mincho:wght@500;700&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../lib/ui.css">
+<link rel="stylesheet" href="map.css">
+</head>
+<body>
+<main class="wrap mapwrap">
+  <header id="top"></header>
+  <div class="toolbar">
+    <nav class="subtabs" aria-label="ノートの表示">
+      <a href="./">ノート</a><a href="map.html" aria-current="page">地図</a>
+    </nav>
+    <div class="seg small" id="lens" role="group" aria-label="並べ方"></div>
+    <input class="search" id="q" type="search" placeholder="地図を探す（言葉・本・キーワード）" aria-label="検索">
+    <span class="count" id="stats"></span>
+  </div>
+  <div class="mapbox" id="mapbox">
+    <svg id="map" role="group" aria-label="読んだことの地図"></svg>
+    <p class="mapempty" id="empty" hidden></p>
+    <div class="mctl" role="group" aria-label="拡大と縮小">
+      <button type="button" id="zout" aria-label="縮小">−</button>
+      <button type="button" id="zin" aria-label="拡大">＋</button>
+      <button type="button" id="zfit">全体</button>
+    </div>
+    <div class="legend" id="legend" aria-hidden="true"></div>
+    <aside class="mpanel" id="panel" aria-label="点の内容" hidden></aside>
+  </div>
+</main>
+<script type="module" src="map.js"></script>
+</body>
+</html>

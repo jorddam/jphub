@@ -1,0 +1,67 @@
+/* 地図 — the map takes the whole window under the toolbar. */
+.mapwrap { max-width: none; padding-bottom: 16px; gap: 14px; }
+.seg.small button { padding: 6px 14px; font-size: 13.5px; }
+.mapbox { position: relative; min-height: 420px; border: 1px solid var(--rule); border-radius: 14px; overflow: hidden;
+  background: radial-gradient(circle at 50% 45%, #14191e 0%, var(--board) 75%); }
+#map { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+#map.drag { cursor: grabbing; }
+
+.nd { cursor: pointer; outline: none; }
+.nd text { font-family: var(--display); pointer-events: none; }
+.nd .hit { fill: transparent; }
+.nd:focus-visible .hit { stroke: var(--j); stroke-width: 1.5; }
+.nd.root .core { fill: var(--ink); }
+.nd.root text { fill: var(--bg); font-size: 17px; font-weight: 900; }
+.nd.field text, .nd.book text { font-size: 15px; font-weight: 700; }
+.nd text.cnt { font-family: var(--label); font-size: 12.5px; font-weight: 600; fill: var(--muted); }
+.nd.topic text, .nd.chapter text { font-size: 14px; font-weight: 700; fill: var(--ink); }
+.nd .bead.open { fill: var(--board); }
+.nd text.bn { font-family: var(--label); font-size: 11px; font-weight: 700; fill: #0b0d0f; }
+.nd .newdot { fill: var(--ink); }
+.nd.point text { font-size: 13px; font-weight: 500; fill: var(--ink); }
+.nd.point:hover text { fill: #fff; }
+.nd.point.sel text { font-weight: 700; fill: #fff; }
+.nd .hollow { fill: var(--board); }
+.nd .halo { fill: none; stroke-width: 1.5; opacity: 0.55; }
+.nd .selring { fill: none; stroke: var(--ink); stroke-width: 1.6; }
+.ln { fill: none; stroke-linecap: round; }
+.ln.field, .ln.book { stroke-width: 5; }
+.ln.topic, .ln.chapter { stroke-width: 2.6; }
+.ln.point { stroke-width: 1.4; opacity: 0.7; }
+.nd.dim, .ln.dim { opacity: 0.3; }
+.tie { fill: none; stroke: var(--ink); stroke-width: 1.2; stroke-dasharray: 2 5; stroke-linecap: round; opacity: 0.6; }
+/* Zoomed far out, the points are just points. */
+#map.far .nd.point text { display: none; }
+@media (prefers-reduced-motion: no-preference) { .nd, .ln { transition: opacity 160ms ease; } }
+
+.mctl { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 6px; }
+.mctl button { min-width: 38px; height: 38px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--rule); background: var(--panel); cursor: pointer;
+  font-weight: 700; font-size: 14px; }
+.mctl button:hover { border-color: var(--muted); }
+.legend { position: absolute; left: 14px; top: 12px; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); pointer-events: none; }
+.legend span { display: inline-flex; align-items: center; gap: 4px; }
+.legend .hollow { fill: var(--board); }
+.legend .halo { fill: none; stroke-width: 1.5; opacity: 0.55; }
+.mapempty { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; text-align: center; padding: 24px; color: var(--muted); }
+
+.mpanel { position: absolute; top: 12px; right: 12px; bottom: 12px; width: 340px; overflow-y: auto; padding: 14px 18px 20px; display: grid; gap: 14px; align-content: start;
+  background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; box-shadow: 0 10px 40px #0009; }
+.mpanel .close { justify-self: end; background: none; border: 0; color: var(--muted); font-size: 13px; cursor: pointer; padding: 2px 0; }
+.mpanel .crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.mpanel .sw { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.mpanel h2 { margin: 0; font-family: var(--serif); font-size: 21px; font-weight: 700; line-height: 1.5; overflow-wrap: anywhere; }
+.mpanel p { margin: 0; overflow-wrap: anywhere; }
+.mpanel .say { font-family: var(--serif); font-size: 16.5px; line-height: 1.95; }
+.mpanel .src { margin: 0; padding: 10px 14px; border-left: 3px solid var(--rule); background: var(--panel2); border-radius: 0 10px 10px 0; font-family: var(--serif); line-height: 1.9; }
+.mpanel .rel { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.mpanel .rel button { width: 100%; display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 1px 8px; align-items: center; text-align: left; padding: 7px 8px;
+  border: 0; border-radius: 8px; background: none; cursor: pointer; }
+.mpanel .rel button:hover { background: var(--hover); }
+.mpanel .rel .t { font-weight: 700; font-size: 14px; }
+.mpanel .rel .m { grid-column: 2; font-size: 12px; color: var(--muted); }
+.mpanel .sum summary { cursor: pointer; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: var(--muted); }
+.mpanel .sum p { margin-top: 8px; font-size: 14px; line-height: 1.8; color: var(--muted); }
+@media (max-width: 899px) {
+  .mpanel { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 48%; border-radius: 14px 14px 0 0; border-width: 1px 0 0; }
+}
+@media (max-width: 559px) { .legend { display: none; } }
