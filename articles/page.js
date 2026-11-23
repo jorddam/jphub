@@ -1,6 +1,6 @@
 import { h, $, clear, topbar, setSync, ago, toast, local, setLocal } from "../lib/core.js";
 import * as data from "../lib/data.js";
-import { loadArticles } from "../lib/sources.js";
+import { loadArticles, articlesDue, fetchNewArticles } from "../lib/sources.js";
 
 topbar("articles");
 
@@ -76,15 +76,37 @@ function render() {
   }
 }
 
+function showSync() {
+  if (checking) return setSync("busy", "新しい記事を確認中…（1分ほど）");
+  setSync(data.mode === "none" || feed.stale ? "bad" : "ok",
+    data.mode === "dev" ? "サンプルデータ" : data.mode === "none" ? "未接続" : "同期済み", () => check(true));
+}
 async function load() {
-  setSync("busy", "読み込み中…");
+  if (!checking) setSync("busy", "読み込み中…");
   try {
     feed = await loadArticles();
     render();
-    setSync(data.mode === "none" || feed.stale ? "bad" : "ok", data.mode === "dev" ? "サンプルデータ" : data.mode === "none" ? "未接続" : "同期済み", load);
+    showSync();
   } catch (e) {
     console.error(e);
     setSync("bad", "読み込めませんでした", load);
   }
 }
-load();
+
+// Fetch the newest batch from the Reading Feed: the 更新 button, and on opening when today's five are missing.
+let checking = false;
+async function check(manual) {
+  if (checking) return;
+  if (data.mode === "none") return load();
+  checking = true;
+  showSync();
+  let next = null, failed = false;
+  try { next = await fetchNewArticles(feed); } catch (e) { console.error(e); failed = true; }
+  checking = false;
+  if (next) { feed = next; render(); toast("新しい記事が届きました"); }
+  else if (failed) toast("確認できませんでした。少ししてからもう一度。");
+  else if (manual) toast("新しい記事はまだありません");
+  showSync();
+}
+
+load().then(() => { if (articlesDue(feed)) check(false); });

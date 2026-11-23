@@ -20,7 +20,7 @@ from urllib.parse import unquote, urlsplit
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HUB = os.path.dirname(HERE)
-JOBS = {"snapshot", "outbox", "steam"}
+JOBS = {"snapshot", "outbox", "steam", "articles"}   # articles is a no-op here: it needs the Airtable token
 mimetypes.add_type("text/javascript", ".js")
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 

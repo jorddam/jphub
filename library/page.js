@@ -2,9 +2,10 @@ import { h, $, clear, topbar, setSync, ago, toast, local, setLocal } from "../li
 import * as data from "../lib/data.js";
 import * as covers from "../lib/covers.js";
 import { TYPES, loadLibrary, statusLabel, setStatus, setRating, nextVolume, dismiss, pending } from "../lib/library.js";
-import { loadSteam, loadJournal, loadHiroicho } from "../lib/sources.js";
+import { loadSteam, loadJournal, loadHiroicho, loadGameMeta } from "../lib/sources.js";
 import { renderBookroom, coverEl } from "./shelf.js";
 import { renderTiles } from "./tiles.js";
+import * as games from "./games.js";
 
 topbar("library");
 
@@ -31,15 +32,18 @@ function cover(w) {
   covers.show(el, w, url => { el.textContent = ""; el.append(h("img", { class: "cover", src: url, alt: "" })); });
   return el;
 }
-function matches(w) {
+// The page's own filters: media type, status chip, search. Games also search their notes and tags.
+function inPool(w) {
   if (state.type !== "all" && w.type?.id !== state.type) return false;
   if (state.filter !== "all" && w.cls !== state.filter) return false;
   if (state.q) {
     const q = state.q.toLowerCase();
-    if (![w.title, w.en, w.creator].some(s => (s || "").toLowerCase().includes(q))) return false;
+    if (!(w.find ? w.find.includes(q) : [w.title, w.en, w.creator].some(s => (s || "").toLowerCase().includes(q)))) return false;
   }
   return true;
 }
+const gameView = () => state.type === "games";
+const matches = w => inPool(w) && (!gameView() || games.passes(w, state.filter === "all"));
 function statusTag(w) {
   if (w.conflict) return h("span", { class: "tag jp pending", text: "シートと違います" });
   if (w.failed) return h("span", { class: "tag jp pending", text: "反映できません" });
@@ -78,17 +82,37 @@ function render() {
     state.type === "books" ? h("a", { class: "chip", href: "https://claude.ai/artifact/SbP6kVYxMH572m9FYKbYfT", target: "_blank", rel: "noopener", text: "AIで選ぶ ↗" }) : null,
   ].filter(Boolean));
 
+  // Games: the picker's filters in a side panel, and its sort orders.
+  if (gameView()) {
+    const n = games.active();
+    $("#filters").append(
+      h("button", { class: "chip", type: "button", "aria-pressed": String(games.f.open), "aria-controls": "facets",
+        onclick: () => { games.setOpen(!games.f.open); render(); } }, "絞り込み", n ? h("span", { class: "n", text: n }) : null),
+      h("select", { class: "sortsel", "aria-label": "並び順", onchange: e => { games.setSort(e.target.value); go({ limit: 150 }); } },
+        Object.entries(games.SORTS).map(([k, ja]) => h("option", { value: k, selected: games.f.opt.sort === k, text: ja }))));
+  }
+  const rail = gameView() && games.f.open;
+  $("#facets").hidden = !rail;
+  $("#libgrid").classList.toggle("rail", rail);
+  if (rail) games.renderFilters($("#facets"), lib.works.filter(inPool), { statusAll: state.filter === "all", onChange: render });
+
   $("#listPanel").hidden = shelf || tiles;
   $("#room").hidden = !shelf && !tiles;
   const type = TYPES.find(t => t.id === state.type);
+  // What's in use comes first; within that, games follow the chosen sort and the rest keep the sheet's order.
+  const sorted = () => {
+    const list = lib.works.filter(matches);
+    if (gameView()) list.sort(games.sorter());
+    return list.sort((a, b) => ORDER[a.cls] - ORDER[b.cls]);
+  };
   if (shelf) {
     renderBookroom($("#room"), lib.works.filter(w => w.type?.id === "books"), { onOpen: openSheet, query: state.q, sort: state.sort,
       selected: state.open, onSort: s => { setLocal("jphub.bookSort", s); go({ sort: s }); } });
   } else if (tiles) {
-    renderTiles($("#room"), lib.works.filter(matches).sort((a, b) => ORDER[a.cls] - ORDER[b.cls]), { onOpen: openSheet, steam, type,
+    renderTiles($("#room"), sorted(), { onOpen: openSheet, steam, type,
       limit: state.limit, onMore: () => go({ limit: state.limit + 300 }) });
   } else {
-    const shown = lib.works.filter(matches).sort((a, b) => ORDER[a.cls] - ORDER[b.cls]);
+    const shown = sorted();
     $("#listTitle").textContent = type ? type.ja : "検索結果";
     $("#count").textContent = `${shown.length}件`;
     const list = clear($("#list"));
@@ -154,7 +178,7 @@ function openSheet(id) {
   for (const s of document.querySelectorAll(".spine")) if (s.dataset.id === id) s.classList.add("sel");
   const kv = [["作者", w.creator], ["シリーズ", w.seriesName], ["レベル", w.level], ["ジャンル", w.genre], ["長さ", w.length || w.format], ["場所", join(TAB_JA[w.tab], w.where, w.site, w.platform)],
     ["Steam", w.appid && steam.games[w.appid] ? `合計 ${steam.games[w.appid].total_h}時間 · 30日で ${steam.h30[w.appid] || 0}時間` : null],
-    ["BookWalker", w.progress]].filter(r => r[1]);
+    ["BookWalker", w.progress]].filter(r => r[1]).concat(games.facts(w));
   const notes = journal.filter(e => e.work === w.title).length + cards.filter(c => c.source === w.title).length;
   const wanted = pending()[w.id]?.status;
   const heading = h("div", {}, h("h2", { text: w.title }), w.en ? h("p", { class: "en", text: w.en }) : null);
@@ -206,7 +230,9 @@ let retry = 0;
 async function load() {
   setSync("busy", "読み込み中…");
   try {
-    [lib, steam, journal, cards] = await Promise.all([loadLibrary(), loadSteam(), loadJournal(), loadHiroicho(), covers.load()]);
+    let meta;
+    [lib, steam, journal, cards, meta] = await Promise.all([loadLibrary(), loadSteam(), loadJournal(), loadHiroicho(), loadGameMeta(), covers.load()]);
+    games.attach(lib.works, meta, steam);
     const reopen = state.open;
     render();
     if (reopen) openSheet(reopen);

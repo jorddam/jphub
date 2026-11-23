@@ -11,7 +11,7 @@ const pctOf = s => { const m = /^(\d+)%$/.exec(s || ""); return m ? +m[1] : null
 
 function line(w, steam) {
   if (w.series) return w.volsTotal > 1 ? `${w.cls === "use" ? w.vol + "巻 · " : ""}全${w.volsTotal}巻` : (w.vol ? w.vol + "巻" : "");
-  if (w.appid) return join(w.tier ? "Tier " + w.tier : null, steam.h30[w.appid] ? `30日で${steam.h30[w.appid]}時間` : null);
+  if (w.appid) return join(w.genre, w.tier ? "Tier " + w.tier : null, steam.h30[w.appid] ? `30日で${steam.h30[w.appid]}時間` : null);
   return join(w.level, w.site, w.rating ? "★" + w.rating : null);
 }
 
@@ -24,6 +24,8 @@ function tile(w, { onOpen, steam }) {
     title: [w.title, w.en].filter(Boolean).join(" · "), onclick: () => onOpen(w.id) },
     h("span", { class: "art" }, coverEl(w),
       badge ? h("span", { class: "badge" + (w.pendingId ? " wait" : ""), text: badge }) : null,
+      // A game's JLPT level, like the price sticker in 次の一本. EN: no Japanese. —: nothing to read.
+      w.sticker ? h("span", { class: "lvs" + (w.g?.lv == null ? " off" : ""), text: w.sticker }) : null,
       done != null && done > 0 ? h("span", { class: "prog" }, h("i", { style: { width: Math.round(done) + "%" } })) : null),
     h("span", { class: "t", text: w.title }),
     sub ? h("span", { class: "s", text: sub }) : null);

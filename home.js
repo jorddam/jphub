@@ -1,7 +1,7 @@
-import { h, $, clear, icon, topbar, setSync, ago, dayKey, SHIFT, local, setLocal } from "./lib/core.js";
+import { h, $, clear, icon, topbar, setSync, ago, dayKey, SHIFT, local, setLocal, toast } from "./lib/core.js";
 import * as data from "./lib/data.js";
 import { TYPES, loadLibrary, inUse, statusLabel } from "./lib/library.js";
-import { loadArticles, loadSteam, loadJournal, loadHiroicho, loadShelf } from "./lib/sources.js";
+import { loadArticles, articlesDue, fetchNewArticles, loadSteam, loadJournal, loadHiroicho, loadShelf } from "./lib/sources.js";
 import { LINES, DEPOT, STATIONS, LAUNCH } from "./lib/stations.js";
 import { ICONS } from "./lib/icons.js";
 
@@ -64,10 +64,13 @@ function renderNow(lib, steam) {
   if (!box.children.length) box.append(h("p", { class: "empty", text: "いま進行中のものはありません。" }));
 }
 
-function renderToday(articles, journal, cards, shelf) {
+function renderToday(articles, journal, cards, shelf, checking) {
   const box = clear($("#today"));
   const read = articles.today.filter(a => a.read).length;
-  box.append(panel("記", `今日の5本 · ${read}/${articles.today.length} 既読`, "--m", "articles/", "読む →",
+  // When today's five haven't arrived, say which day's these are instead of calling them today's.
+  const day = new Date(articles.today[0]?.added || NaN);
+  const name = articles.fresh || isNaN(day) ? "今日の5本" : `${day.getMonth() + 1}月${day.getDate()}日の5本`;
+  box.append(panel("記", `${name} · ${read}/${articles.today.length} 既読${checking ? " · 新着を確認中…" : ""}`, "--m", "articles/", "読む →",
     articles.today.map(a => row({ href: "articles/", title: a.jp, sub: join(a.source, a.difficulty, a.length, a.read ? "既読" : null) })),
     "今日の記事はまだ届いていません。"));
 
@@ -230,6 +233,16 @@ async function load() {
     renderNow(lib, steam);
     renderToday(articles, journal, cards, shelf);
     renderStations();
+    // Today's five should be here by now and aren't: ask for them, and show them when they land.
+    if (!asking && articlesDue(articles)) {
+      asking = true;
+      renderToday(articles, journal, cards, shelf, true);
+      fetchNewArticles(articles).catch(() => null).then(next => {
+        asking = false;
+        renderToday(next || articles, journal, cards, shelf);
+        if (next) toast("新しい記事が届きました");
+      });
+    }
     const label = data.mode === "dev" ? "サンプルデータ" : data.mode === "none" ? "未接続" : lib.stale ? "オフライン" : "同期済み";
     setSync(data.mode === "none" || lib.stale ? "bad" : "ok", `${label} · シート ${ago(lib.at)}`, refresh);
   } catch (e) {
@@ -237,9 +250,14 @@ async function load() {
     setSync("bad", "読み込めませんでした", load);
   }
 }
+let asking = false;
+// 更新: copy the sheet and the Reading Feed again, wait for both, then read. One after the other,
+// because the jobs share a queue on GitHub.
 async function refresh() {
-  setSync("busy", "更新中…");
-  try { await data.runJob("snapshot"); } catch (e) { /* show what we have */ }
+  setSync("busy", "更新中…（1分ほど）");
+  for (const job of ["snapshot", "articles"]) {
+    try { await data.runJobAndWait(job); } catch (e) { /* show what we have */ }
+  }
   await load();
 }
 

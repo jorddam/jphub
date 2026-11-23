@@ -19,11 +19,16 @@
     <div class="chips" id="filters" role="group" aria-label="表示"></div>
   </div>
   <div id="extra"></div>
-  <div id="room" hidden></div>
-  <section class="panel" id="listPanel">
-    <header><h2 id="listTitle"></h2><span class="count" id="count"></span></header>
-    <div class="lib" id="list"></div>
-  </section>
+  <div class="libgrid" id="libgrid">
+    <aside class="facets" id="facets" aria-label="絞り込み" hidden></aside>
+    <div class="libmain">
+      <div id="room" hidden></div>
+      <section class="panel" id="listPanel">
+        <header><h2 id="listTitle"></h2><span class="count" id="count"></span></header>
+        <div class="lib" id="list"></div>
+      </section>
+    </div>
+  </div>
 </main>
 <script type="module" src="page.js"></script>
 </body>

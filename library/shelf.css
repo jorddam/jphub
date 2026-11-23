@@ -1,7 +1,7 @@
 /* 本 — a quiet reading room, carried over from 次の一冊.
    Books you're reading lie face-up on the nightstand; the rest stand on shelves as spines,
    coloured by genre, as wide as they are long. */
-.bookroom, .sheet {
+.bookroom, .sheet, .facets {
   --sheet: #1d2026; --lamp: #e1b257; --lamp-soft: rgba(225, 178, 87, .14); --board: #6b5641;
   --sp-horror: #8a4251; --sp-mystery: #3f5778; --sp-sf: #3f7571; --sp-fantasy: #776ba0; --sp-literary: #a06c52;
   --sp-nonfic: #857f4a; --sp-classic: #57524c; --sp-other: #717875; --sp-ink: #f5f1e6;
@@ -99,6 +99,57 @@
 .tile.done .cov, .tile.dropped .cov { filter: saturate(.55) brightness(.8); }
 .tile .prog { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(0, 0, 0, .55); border-radius: 0 0 4px 2px; overflow: hidden; }
 .tile .prog i { display: block; height: 100%; background: var(--lamp); }
+
+.tile .lvs { position: absolute; right: 6px; top: 6px; padding: 0 6px; border-radius: 4px; font-family: var(--f-mono); font-size: 11px; line-height: 18px;
+  background: var(--lamp); color: #1d1a14; box-shadow: 0 1px 3px rgba(0, 0, 0, .4); font-variant-numeric: tabular-nums; }
+.tile .lvs.off { background: rgba(20, 22, 26, .82); color: var(--muted); }
+
+/* games: the filter panel beside the covers (on a phone it sits above them) */
+.libgrid, .libmain { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.facets { background: var(--panel); border: 1px solid var(--rule); border-radius: 14px; padding: 14px 14px 16px; display: grid; gap: 16px;
+  align-content: start; max-height: 60vh; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+@media (min-width: 720px) {
+  .libgrid.rail { grid-template-columns: 272px minmax(0, 1fr); align-items: start; }
+  .libgrid.rail .facets { position: sticky; top: 12px; max-height: calc(100vh - 24px); }
+}
+.fac-top { display: flex; align-items: baseline; gap: 10px; }
+.fac-top h2 { margin: 0; font-size: 16px; font-weight: 900; }
+.fac-top .cnt, .lv-read .cnt { font-size: 12.5px; color: var(--muted); }
+.fac, .facs { display: grid; gap: 8px; min-width: 0; }
+.facs { gap: 16px; }
+.fac-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.fac-h .lab { font-size: 12px; font-weight: 700; letter-spacing: .08em; color: var(--muted); }
+.clr { border: 0; background: none; padding: 0; margin-left: auto; color: var(--muted); font-size: 12px; text-decoration: underline; cursor: pointer; }
+.clr:hover { color: var(--ink); }
+.facets .chip { padding: 4px 10px; font-size: 12.5px; font-weight: 500; white-space: normal; text-align: left; }
+.facets .chip.z { opacity: .45; }
+.sortsel { padding: 5px 10px; border-radius: 999px; border: 1px solid var(--rule); background: var(--panel); color: var(--ink);
+  font-size: 13px; font-weight: 700; cursor: pointer; max-width: 100%; }
+
+/* the level slider, from 次の一冊: bars show how many games sit at each level */
+.lv { display: grid; gap: 0; padding-top: 4px; }
+.lv-hist { display: flex; align-items: flex-end; height: 44px; border-bottom: 1px solid var(--rule); }
+.lv-hist i { flex: 1 1 0; margin: 0 .5px; background: var(--rule); border-radius: 1px 1px 0 0; }
+.lv-hist i.in { background: var(--lamp); }
+.range { position: relative; height: 38px; padding: 0 calc(100% / 102); touch-action: none; user-select: none; -webkit-user-select: none; }
+.r-track { position: relative; height: 100%; }
+.r-line { position: absolute; left: 0; right: 0; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px; background: var(--rule); }
+.r-fill { position: absolute; top: 50%; height: 12px; margin-top: -6px; border-radius: 6px; background: var(--lamp); cursor: grab; opacity: .92; }
+.r-fill:active { cursor: grabbing; }
+.r-thumb { position: absolute; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; background: var(--sheet);
+  border: 2px solid var(--lamp); box-shadow: 0 1px 4px rgba(0, 0, 0, .25); cursor: ew-resize; }
+.r-thumb:focus-visible, .r-fill:focus-visible { outline: 2px solid var(--j); outline-offset: 2px; }
+.r-thumb .bub { display: none; position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%); font-family: var(--f-mono); font-size: 11.5px;
+  background: var(--ink); color: var(--bg); padding: 1px 6px; border-radius: 4px; white-space: nowrap; pointer-events: none; }
+.r-thumb:active .bub, .r-thumb:focus-visible .bub { display: block; }
+.r-axis { position: relative; height: 18px; padding: 0 calc(100% / 102); font-family: var(--f-mono); font-size: 11px; color: var(--muted); }
+.r-axis div { position: relative; height: 100%; }
+.r-axis span { position: absolute; top: 0; transform: translateX(-50%); }
+.r-axis span:first-child { transform: none; }
+.r-axis span:last-child { transform: translateX(-100%); }
+.r-ends { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); }
+.lv-read { display: flex; gap: 6px 10px; align-items: baseline; flex-wrap: wrap; margin-top: 8px; }
+.lv-read strong { font-family: var(--f-mono); font-size: 16px; font-weight: 500; font-variant-numeric: tabular-nums; }
 
 /* the cover at the top of the detail sheet */
 .sheet .hero { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 0 18px; align-items: start; }
