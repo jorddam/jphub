@@ -1,0 +1,23 @@
+# Checks every push: all scripts parse, the reader's tests pass, the jobs' tests pass.
+# It only reads the repo; it does not deploy anything (Pages publishes main on its own).
+name: test
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Scripts parse and the hub's tests pass
+        run: node --experimental-vm-modules tests/run.mjs
+      - name: The jobs' tests pass
+        run: python3 -m unittest discover -s jobs/tests

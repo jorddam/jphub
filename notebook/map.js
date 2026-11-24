@@ -4,7 +4,7 @@
 // Two ways to arrange the same points: by 分野 (field → topic → point) or by 本 (book → chapter → point).
 // Drag to move, pinch or scroll to zoom, tap a branch to fold it, tap a point to read it.
 
-import { h, $, clear, topbar, setSync, local, setLocal } from "../lib/core.js";
+import { h, $, clear, topbar, setSync, local, setLocal, toast } from "../lib/core.js";
 import * as data from "../lib/data.js";
 import { KINDS, FRESH_DAYS, fieldOf, kindJa, loadPoints, buildTree, related, matches } from "../lib/knowledge.js";
 
@@ -40,7 +40,7 @@ const M = {
 const isPill = n => n.type === "field" || n.type === "book";
 
 const state = { lens: local("jphub.mapLens", "field") === "book" ? "book" : "field", q: "", sel: null };
-let book = { points: [], connected: false };
+let book = { state: "ok", points: [], report: null, stale: false };
 let byPoint = new Map();                 // point id → point
 let root = null, byId = new Map(), parentOf = new Map(), pointNode = new Map(), branches = [];
 let open = new Set();                    // branches the reader has opened (remembered per view)
@@ -378,9 +378,27 @@ function showPanel() {
 // ---------- toolbar ----------
 function stats(found) {
   const pts = book.points, fresh = pts.filter(p => Date.now() - p.at < FRESH_DAYS * 86400e3).length;
-  $("#stats").textContent = !pts.length ? "" : found != null ? `${found}件 / ${pts.length}点`
-    : [`${pts.length}点`, `${new Set(pts.map(p => p.book)).size}冊`, fresh ? `この${FRESH_DAYS}日で ${fresh}点` : ""].filter(Boolean).join(" · ");
+  const el = clear($("#stats"));
+  el.append(!pts.length ? "" : found != null ? `${found}件 / ${pts.length}点`
+    : [`${pts.length}点`, `${new Set(pts.map(p => p.bookId)).size}冊`, fresh ? `この${FRESH_DAYS}日で ${fresh}点` : ""].filter(Boolean).join(" · "));
+  // Records the reader could not use, or could not file: say so, and say why when asked.
+  const r = book.report, odd = r ? r.skipped + r.unfiled : 0;
+  if (odd && found == null) el.append(pts.length ? " · " : "", h("button", { class: "linkbtn", type: "button", text: `要確認 ${odd}件`, onclick: () => toast(oddities(r), 9000) }));
 }
+function oddities(r) {
+  const out = [];
+  if (r.skipped) out.push(`読めなかった記録 ${r.skipped}件（${Object.entries(r.why).map(([why, n]) => `${why} ${n}`).join("、")}）`);
+  if (r.unfiled) out.push(`分野が分からず「その他」に入れた点 ${r.unfiled}件（${r.unknownFields.join("、")}）`);
+  return out.join("。") + "。";
+}
+const EMPTY = {
+  none: "未接続です。設定でトークンを入れると、ここに地図が出ます。",
+  denied: "行間の同期ファイルを読めませんでした。設定のトークンに gyokan-sync を読む権限があるか確かめてください。",
+  missing: "行間の同期ファイルが見つかりません。トークンが gyokan-sync を読めるか、行間で同期を入れてあるかを確かめてください。",
+  foreign: "同期ファイルはありますが、行間のものではないようです。",
+  error: "読み込めませんでした。通信を確かめて、右上の「更新」でもう一度試してください。",
+  ok: "まだ点がありません。行間でノンフィクションを読み、閉じるときの要約が保存されると、読んだことがここに点として増えていきます。",
+};
 function lensButtons() {
   clear($("#lens")).append(...[["field", "分野"], ["book", "本"]].map(([id, ja]) =>
     h("button", { type: "button", "aria-pressed": String(state.lens === id), text: ja, onclick: () => {
@@ -488,8 +506,7 @@ function start() {
   stats(null);
   if (!any) {
     panel.hidden = true;
-    $("#empty").textContent = data.mode === "none" ? "未接続です。設定でトークンを入れると、ここに地図が出ます。"
-      : "まだ点がありません。行間でノンフィクションを読み、閉じるときの要約が保存されると、読んだことがここに点として増えていきます。";
+    $("#empty").textContent = EMPTY[book.state] || EMPTY.error;
     return;
   }
   state.sel = null; forced = new Set(); lit = null; state.q = ""; $("#q").value = "";
@@ -511,9 +528,15 @@ async function load() {
     lensButtons();
     legend();
     start();
-    setSync(data.mode === "none" ? "bad" : "ok", data.mode === "dev" ? "サンプルデータ" : data.mode === "none" ? "未接続" : "同期済み", () => load());
+    // Say what was actually read: a failed fetch is not "synced", and a saved copy is not the latest.
+    const good = book.state === "ok" && !book.stale;
+    setSync(good ? "ok" : "bad", book.state === "none" ? "未接続" : book.state !== "ok" ? "読み込めませんでした"
+      : book.stale ? "オフライン（保存した分）" : data.mode === "dev" ? "サンプルデータ" : "同期済み", () => load());
   } catch (e) {
     console.error(e);
+    book = { state: "error", points: [], report: null, stale: true };
+    byPoint = new Map();
+    start();
     setSync("bad", "読み込めませんでした", () => load());
   }
 }
