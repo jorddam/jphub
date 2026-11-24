@@ -1,7 +1,7 @@
 // What the map's reader does with Gyokan's file. Every record here is made up.
 
 import { test, eq, ok } from "./harness.js";
-import { FIELDS, matchField, matchKind, normalise, buildTree, related, matches, tidy, fold, FRESH_DAYS } from "../lib/points.js";
+import { FIELDS, matchField, matchKind, normalise, buildTree, related, matches, tidy, fold, capList, FRESH_DAYS, GROUP_AT } from "../lib/points.js";
 
 const DAY = 86400e3, NOW = Date.UTC(2026, 10, 24);
 const sitting = (id, book, author, points, extra = {}) =>
@@ -159,6 +159,57 @@ test("tree: every node has an id of its own", () => {
     (function walk(n) { ids.push(n.id); n.kids.forEach(walk); })(buildTree(normalise(g).points, lens, NOW));
     eq(new Set(ids).size, ids.length, lens);
   }
+});
+
+// n points on one topic, spread over the given books and chapters.
+const many = (n, books, chapters = 1) => file(...Array.from({ length: n }, (_, i) =>
+  sitting("s" + i, books[i % books.length], "甲", [pt("点" + i, { topic: "大きな題" })], { ch: 1 + (i % chapters), chapter: `第${1 + (i % chapters)}章`, added: NOW - (n - i) * DAY })));
+const shape = n => n.kids.map(k => [k.type, k.label, k.count]);
+const leaves = n => n.type === "point" ? [n.label] : n.kids.flatMap(leaves);
+
+test("tree: a topic up to the limit is a plain list; past it, it is split by book", () => {
+  const flat = buildTree(normalise(many(GROUP_AT, ["本A", "本B", "本C"])).points, "field", NOW).kids[0].kids[0];
+  eq([flat.label, flat.count, flat.kids.every(k => k.type === "point")], ["大きな題", GROUP_AT, true]);
+  const split = buildTree(normalise(many(GROUP_AT + 3, ["本A", "本B", "本C"])).points, "field", NOW).kids[0].kids[0];
+  eq(shape(split), [["group", "本A", 11], ["group", "本B", 11], ["group", "本C", 11]]);
+  eq(split.count, GROUP_AT + 3);
+  eq(leaves(split).length, GROUP_AT + 3, "no point is lost in the split");
+  eq(leaves(split.kids[0]).slice(0, 3), ["点0", "点3", "点6"], "reading order is kept inside each book");
+});
+test("tree: a long topic from one book is split by chapter; with nothing to split by, it stays a list", () => {
+  const byChapter = buildTree(normalise(many(40, ["本A"], 4)).points, "field", NOW).kids[0].kids[0];
+  eq(shape(byChapter), [["group", "第1章", 10], ["group", "第2章", 10], ["group", "第3章", 10], ["group", "第4章", 10]]);
+  const stuck = buildTree(normalise(many(40, ["本A"], 1)).points, "field", NOW).kids[0].kids[0];
+  eq([stuck.kids.length, stuck.kids.every(k => k.type === "point")], [40, true]);
+});
+test("tree: a book's share of a topic that is still too long is split again by chapter", () => {
+  const topic = buildTree(normalise(many(80, ["本A", "本B"], 4)).points, "field", NOW).kids[0].kids[0];
+  eq(shape(topic), [["group", "本A", 40], ["group", "本B", 40]]);
+  eq(shape(topic.kids[0]), [["group", "第1章", 20], ["group", "第3章", 20]]);
+  eq(leaves(topic).length, 80);
+});
+test("tree: by book, a chapter past the limit is split by topic", () => {
+  const g = file(...Array.from({ length: 36 }, (_, i) => sitting("s" + i, "本A", "甲", [pt("点" + i, { topic: i % 2 ? "題B" : "題A" })], { added: NOW - (40 - i) * DAY })));
+  const chapter = buildTree(normalise(g).points, "book", NOW).kids[0].kids[0];
+  eq([chapter.type, chapter.label, chapter.count], ["chapter", "第一章", 36]);
+  eq(shape(chapter), [["group", "題A", 18], ["group", "題B", 18]]);
+});
+test("tree: split or not, every node keeps an id of its own and the counts add up", () => {
+  for (const lens of ["field", "book"]) {
+    const tree = buildTree(normalise(many(95, ["本A", "本B", "本C"], 5)).points, lens, NOW), ids = [];
+    (function walk(n) { ids.push(n.id); n.kids.forEach(walk); if (n.type !== "point") eq(n.count, leaves(n).length, n.id); })(tree);
+    eq(new Set(ids).size, ids.length, lens);
+    eq(tree.count, 95);
+  }
+});
+test("short list: the newest few, anything that must be seen, and how many are left out", () => {
+  const kids = Array.from({ length: 20 }, (_, i) => i);
+  eq(capList(kids, 8), { show: [12, 13, 14, 15, 16, 17, 18, 19], hidden: 12 });
+  eq(capList(kids, 8, k => k === 2 || k === 15), { show: [2, 12, 13, 14, 15, 16, 17, 18, 19], hidden: 11 });
+  eq(capList(kids.slice(0, 8), 8), { show: kids.slice(0, 8), hidden: 0 });
+  eq(capList(kids.slice(0, 9), 8).hidden, 0, "one over the limit is shown whole");
+  eq(capList(kids.slice(0, 10), 8).hidden, 2);
+  eq(capList(kids, 8, () => true).hidden, 0);
 });
 
 test("connections: most shared keywords first, then newest; none without keywords", () => {

@@ -14,7 +14,10 @@
 .nd.root text { fill: var(--bg); font-size: 17px; font-weight: 900; }
 .nd.field text, .nd.book text { font-size: 15px; font-weight: 700; }
 .nd text.cnt { font-family: var(--label); font-size: 12.5px; font-weight: 600; fill: var(--muted); }
-.nd.topic text, .nd.chapter text { font-size: 14px; font-weight: 700; fill: var(--ink); }
+.nd.topic text, .nd.chapter text, .nd.group text { font-size: 14px; font-weight: 700; fill: var(--ink); }
+.nd.more text { font-size: 12.5px; font-weight: 600; fill: var(--muted); }
+.nd.more:hover text { fill: var(--ink); }
+.nd.more .ring { fill: var(--board); stroke: var(--muted); stroke-width: 1.4; stroke-dasharray: 2 2.4; }
 .nd .bead.open { fill: var(--board); }
 .nd text.bn { font-family: var(--label); font-size: 11px; font-weight: 700; fill: #0b0d0f; }
 .nd .newdot { fill: var(--ink); }
@@ -27,11 +30,15 @@
 .ln { fill: none; stroke-linecap: round; }
 .ln.field, .ln.book { stroke-width: 5; }
 .ln.topic, .ln.chapter { stroke-width: 2.6; }
+.ln.group { stroke-width: 2; }
 .ln.point { stroke-width: 1.4; opacity: 0.7; }
+.ln.more { stroke-width: 1.2; opacity: 0.45; stroke-dasharray: 2 4; }
 .nd.dim, .ln.dim { opacity: 0.3; }
 .tie { fill: none; stroke: var(--ink); stroke-width: 1.2; stroke-dasharray: 2 5; stroke-linecap: round; opacity: 0.6; }
 /* Zoomed far out, the points are just points. */
-#map.far .nd.point text { display: none; }
+#map.far .nd.point text, #map.far .nd.more text { display: none; }
+/* Further out still, the topics lose their names too; the fields keep theirs. */
+#map.vfar .nd.topic text, #map.vfar .nd.chapter text, #map.vfar .nd.group text { display: none; }
 @media (prefers-reduced-motion: no-preference) { .nd, .ln { transition: opacity 160ms ease; } }
 
 .mctl { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 6px; }

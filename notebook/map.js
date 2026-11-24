@@ -6,7 +6,7 @@
 
 import { h, $, clear, topbar, setSync, local, setLocal, toast } from "../lib/core.js";
 import * as data from "../lib/data.js";
-import { KINDS, FRESH_DAYS, fieldOf, kindJa, loadPoints, buildTree, related, matches } from "../lib/knowledge.js";
+import { KINDS, FRESH_DAYS, fieldOf, kindJa, loadPoints, buildTree, related, matches, capList } from "../lib/knowledge.js";
 
 topbar("notebook");
 
@@ -34,10 +34,16 @@ const TWIG = { size: 14, weight: 700, up: 22, down: 11, gapX: 44, gapY: 12 };
 const M = {
   root: { size: 17, weight: 900, up: 23, down: 23, pad: 22, max: 12 },
   field: { ...BRANCH, max: 14 }, book: { ...BRANCH, max: 18 },
-  topic: { ...TWIG, max: 16 }, chapter: { ...TWIG, max: 18 },
+  topic: { ...TWIG, max: 16 }, chapter: { ...TWIG, max: 18 }, group: { ...TWIG, max: 18 },
   point: { size: 13, weight: 500, up: 12, down: 12, gapX: 36, gapY: 2, max: 24 },
+  more: { size: 12.5, weight: 600, up: 12, down: 12, gapX: 36, gapY: 2, max: 20 },
 };
 const isPill = n => n.type === "field" || n.type === "book";
+const isBranch = n => n.type !== "point" && n.type !== "root" && n.type !== "more";
+// An open branch shows its newest CAP points and one line for the rest ("ほか N点"), which opens them all.
+const CAP = 8;
+// How far out the map may go (全体 on a very large map), and the smallest size at which it is still readable.
+const MIN_K = 0.02, READ_K = 0.5;
 
 const state = { lens: local("jphub.mapLens", "field") === "book" ? "book" : "field", q: "", sel: null };
 let book = { state: "ok", points: [], report: null, stale: false };
@@ -45,9 +51,13 @@ let byPoint = new Map();                 // point id → point
 let root = null, byId = new Map(), parentOf = new Map(), pointNode = new Map(), branches = [];
 let open = new Set();                    // branches the reader has opened (remembered per view)
 let forced = new Set();                  // branches held open by a search
+let full = new Set();                    // branches showing every point, not only the newest (until they are closed)
+let kept = new Set();                    // points that were chosen: they stay in view even when older than the newest few
+let found = new Set();                   // points the search matched: shown while the search is on
 let lit = null;                          // when set, only these nodes are at full strength
 const cam = { x: 0, y: 0, k: 1, to: null };
 let moved = false;                       // has the reader moved the map since it was last fitted?
+let refit = null;                        // the view to return to when the window changes size and the map hasn't been moved
 const els = new Map();                  // node id → { g, link, x, y } as drawn right now
 const still = matchMedia("(prefers-reduced-motion: reduce)"), wideScreen = matchMedia("(min-width: 900px)");
 
@@ -61,7 +71,7 @@ function measure(n) {
   const tw = ctx.measureText(n.text).width;
   if (n.type === "root") n.w = tw + T.pad * 2;
   else if (isPill(n)) n.w = tw + 10 + String(n.count).length * 7.5 + T.pad * 2;
-  else if (n.type === "point") n.w = 18 + tw;
+  else if (n.type === "point" || n.type === "more") n.w = 18 + tw;
   else n.w = tw + 30;
 }
 
@@ -80,7 +90,7 @@ function setTree() {
     measure(n);
     for (const k of n.kids) walk(k, n);
   })(root, null);
-  branches = [...byId.values()].filter(n => n.type !== "point" && n.type !== "root");
+  branches = [...byId.values()].filter(isBranch);
   // What was open last time stays open. A branch that is new since then starts open when it sits next to
   // the middle or holds something read this week, so new reading shows itself.
   const saved = local(openKey(), null), known = new Set(saved?.known || []);
@@ -93,11 +103,29 @@ function setTree() {
   els.clear();
 }
 
+// What an open branch shows. A long list of points, or of the parts a long topic was split into, is cut to
+// its newest few plus any that must be seen (chosen, found by the search, opened, or read this week),
+// with one line standing for the rest. Fields, books, topics and chapters themselves are never hidden.
+function visible(n) {
+  if (!isOpen(n)) return [];
+  const type = n.kids[0]?.type;
+  if ((type !== "point" && type !== "group") || full.has(n.id)) return n.kids;
+  // During a search the short list is the matches alone, so the result stays small enough to read.
+  const { show, hidden } = capList(n.kids, state.q ? 0 : CAP, k => k.point ? kept.has(k.point.id) || found.has(k.point.id) : kept.has(k.id) || isOpen(k) || (!state.q && k.fresh > 0));
+  if (!hidden) return n.kids;
+  if (state.q) return show;       // no "ほか" lines among search results
+  if (!n.more) n.more = { id: "m:" + n.id, type: "more", label: "", kids: [], count: 0, fresh: 0, color: n.color, owner: n };
+  const seen = new Set(show), label = `ほか ${n.kids.reduce((a, k) => a + (seen.has(k) ? 0 : k.count), 0)}点`;
+  if (n.more.label !== label) { n.more.label = label; measure(n.more); }
+  byId.set(n.more.id, n.more); parentOf.set(n.more.id, n);
+  return [n.more, ...show];
+}
+
 // ---------- layout: a tidy tree growing out to both sides ----------
 function layout() {
   const span = n => {
     const T = M[n.type];
-    n.vis = isOpen(n) ? n.kids : [];
+    n.vis = visible(n);
     n.sub = n.vis.reduce((a, k, i) => a + span(k) + (i ? M[k.type].gapY : 0), 0);
     n.span = Math.max(T.up + T.down, n.sub);
     return n.span;
@@ -139,15 +167,22 @@ function dot(n, cx) {
   return s("circle", { cx, cy: 0, r: 4.5, fill: c });
 }
 function paint(e) {
-  const n = e.n, T = M[n.type], dir = n.dir, g = clear(e.g);
-  const opened = isOpen(n) && n.kids.length > 0, dim = lit && !lit.has(n.id);
+  const n = e.n, T = M[n.type], dir = n.dir;
+  const opened = isOpen(n) && n.kids.length > 0, dim = !!lit && !lit.has(n.id), sel = !!n.point && n.point.id === state.sel;
+  // Dimming is only a class, so choosing a point on a big map doesn't rebuild every node.
+  const cls = `${n.type}${dim ? " dim" : ""}${sel ? " sel" : ""}`;
+  if (e.cls !== cls) { e.cls = cls; e.g.setAttribute("class", "nd " + cls); e.link?.setAttribute("class", `ln ${n.type}${dim ? " dim" : ""}`); }
+  // Draw a node again only when something about it has changed: on a big map most of it hasn't.
+  const sig = [dir, n.text, n.w, n.count, n.fresh > 0, opened, sel].join("|");
+  if (e.sig === sig) return;
+  e.sig = sig; e.dirty = true;
+  const g = clear(e.g);
   const left = n.type === "root" ? -n.w / 2 : dir > 0 ? 0 : -n.w, anchor = dir > 0 ? "start" : "end";
-  g.setAttribute("class", `nd ${n.type}${dim ? " dim" : ""}${n.point && n.point.id === state.sel ? " sel" : ""}`);
   g.dataset.id = n.id;
   g.setAttribute("tabindex", "0");
   g.setAttribute("role", "button");
-  g.setAttribute("aria-label", n.type === "point" ? n.label : n.type === "root" ? "読んだこと（全体を表示）" : `${n.label} ${n.count}点`);
-  if (n.type !== "point" && n.type !== "root") g.setAttribute("aria-expanded", String(opened));
+  g.setAttribute("aria-label", n.type === "point" ? n.label : n.type === "root" ? "読んだこと（全体を表示）" : n.type === "more" ? `${n.label}を表示` : `${n.label} ${n.count}点`);
+  if (isBranch(n)) g.setAttribute("aria-expanded", String(opened));
   g.append(s("rect", { class: "hit", x: left - 3, y: -T.up, width: n.w + 6, height: T.up + T.down, rx: 8 }));
   if (n.text !== n.label) g.append(s("title", { text: n.label }));
 
@@ -163,6 +198,8 @@ function paint(e) {
     if (n.point.id === state.sel) g.append(s("circle", { class: "selring", cx: dir * 7, cy: 0, r: 9 }));
     else if (n.fresh) g.append(s("circle", { class: "halo", cx: dir * 7, cy: 0, r: 8.5, stroke: n.color }));
     g.append(dot(n, dir * 7), s("text", { x: dir * 18, "text-anchor": anchor, dy: ".35em", text: n.text }));
+  } else if (n.type === "more") {
+    g.append(s("circle", { class: "ring", cx: dir * 7, cy: 0, r: 5 }), s("text", { x: dir * 18, "text-anchor": anchor, dy: ".35em", text: n.text }));
   } else {
     // A topic: its name written on the branch, and a bead at the end that folds it.
     g.append(s("line", { x1: 0, y1: 0, x2: dir * (n.w - 20), y2: 0, stroke: n.color, "stroke-width": 2.6, "stroke-linecap": "round" }),
@@ -170,8 +207,8 @@ function paint(e) {
       s("circle", { class: "bead" + (opened ? " open" : ""), cx: dir * (n.w - 10), cy: 0, r: 10, fill: n.color, stroke: n.color, "stroke-width": 1.6 }));
     if (!opened) g.append(s("text", { class: "bn", x: dir * (n.w - 10), "text-anchor": "middle", dy: ".35em", text: n.count }));
   }
-  if (!opened && n.fresh && n.type !== "point" && n.type !== "root") g.append(s("circle", { class: "newdot", cx: dir * (n.w + 9), cy: 0, r: 3.5 }));
-  if (e.link) { e.link.setAttribute("class", `ln ${n.type}${dim ? " dim" : ""}`); e.link.setAttribute("stroke", n.color); }
+  if (!opened && n.fresh && isBranch(n)) g.append(s("circle", { class: "newdot", cx: dir * (n.w + 9), cy: 0, r: 3.5 }));
+  e.link?.setAttribute("stroke", n.color);
 }
 
 const outX = e => e.x + (e.n.type === "root" ? 0 : e.n.dir * e.n.w);
@@ -181,7 +218,8 @@ function curve(x1, y1, x2, y2) {
 }
 function applyCam() {
   gView.setAttribute("transform", `translate(${cam.x.toFixed(1)} ${cam.y.toFixed(1)}) scale(${cam.k.toFixed(4)})`);
-  svg.classList.toggle("far", cam.k < 0.5);
+  svg.classList.toggle("far", cam.k < READ_K);       // points lose their words
+  svg.classList.toggle("vfar", cam.k < 0.26);        // and then the topics do
 }
 
 // Dashed lines from the chosen point to the points it shares a keyword with.
@@ -212,18 +250,23 @@ let raf = 0;
 function animate(ms = 260) {
   cancelAnimationFrame(raf);
   if (still.matches || document.hidden) ms = 0;
-  for (const e of els.values()) { e.x0 = e.x; e.y0 = e.y; }
+  // Only what has somewhere to go is touched on each frame; on a big map most of it is standing still.
+  for (const e of els.values()) {
+    e.x0 = e.x; e.y0 = e.y;
+    e.go = e.born || e.dirty || e.x !== e.n.tx || e.y !== e.n.ty;
+    e.dirty = false;
+  }
+  const going = [...els.values()].filter(e => e.go), links = [...els.values()].filter(e => e.link && (e.go || els.get(e.parent.id).go));
   if (cam.to) Object.assign(cam.to, { x0: cam.x, y0: cam.y, k0: cam.k });
   const t0 = performance.now();
   const frame = now => {
     const t = ms ? clamp((now - t0) / ms, 0, 1) : 1, k = 1 - Math.pow(1 - t, 3);
-    for (const e of els.values()) {
+    for (const e of going) {
       e.x = e.x0 + (e.n.tx - e.x0) * k; e.y = e.y0 + (e.n.ty - e.y0) * k;
       e.g.setAttribute("transform", `translate(${e.x.toFixed(1)} ${e.y.toFixed(1)})`);
       if (e.born) { e.g.setAttribute("opacity", k.toFixed(2)); e.link?.setAttribute("opacity", k.toFixed(2)); }
     }
-    for (const e of els.values()) {
-      if (!e.link) continue;
+    for (const e of links) {
       const p = els.get(e.parent.id);
       e.link.setAttribute("d", curve(p.n.type === "root" ? p.x + e.n.dir * p.n.w / 2 : outX(p), p.y, e.x, e.y));
     }
@@ -231,7 +274,8 @@ function animate(ms = 260) {
     if (cam.to) { const c = cam.to; cam.x = c.x0 + (c.x - c.x0) * k; cam.y = c.y0 + (c.y - c.y0) * k; cam.k = c.k0 + (c.k - c.k0) * k; applyCam(); }
     if (t < 1) { raf = requestAnimationFrame(frame); return; }
     cam.to = null;
-    for (const e of els.values()) if (e.born) { e.born = false; e.g.removeAttribute("opacity"); e.link?.removeAttribute("opacity"); }
+    // Land exactly, so a node that has arrived is not taken for one still on its way next time.
+    for (const e of going) { e.x = e.n.tx; e.y = e.n.ty; if (e.born) { e.born = false; e.g.removeAttribute("opacity"); e.link?.removeAttribute("opacity"); } }
   };
   frame(t0);
 }
@@ -272,10 +316,17 @@ function boundsOf(list) {
   }
   return { x0, y0, x1, y1, w: x1 - x0, h: y1 - y0 };
 }
-function camFor(list, maxK = 1.1) {
+function camFor(list, maxK = 1.1, minK = MIN_K) {
   const b = boundsOf(list), a = area(), pad = 36;
-  const k = clamp(Math.min((a.W - pad * 2) / (b.w || 1), (a.H - pad * 2) / (b.h || 1)), 0.4, maxK);
+  const k = clamp(Math.min((a.W - pad * 2) / (b.w || 1), (a.H - pad * 2) / (b.h || 1)), minK, maxK);
   return { k, x: a.W / 2 - k * (b.x0 + b.w / 2), y: a.H / 2 - k * (b.y0 + b.h / 2) };
+}
+const allCam = () => camFor(shown());
+// Where the map opens: all of it while that is still readable; once it has outgrown the window,
+// the middle and its first branches at a readable size, with the rest a drag (or 全体) away.
+function homeCam() {
+  const c = allCam();
+  return c.k >= READ_K ? c : camFor([root, ...root.vis], 1.1, 0.34);
 }
 // Shift the view just enough to bring these nodes on screen, when they fit.
 function nudgeTo(list, base = cam.to || cam) {
@@ -286,23 +337,33 @@ function nudgeTo(list, base = cam.to || cam) {
   return { x, y, k };
 }
 function zoomAt(mx, my, factor) {
-  const k = clamp(cam.k * factor, 0.2, 2.6);
+  const k = clamp(cam.k * factor, MIN_K, 2.6);
   cam.to = null; moved = true;
   cam.x = mx - (mx - cam.x) * k / cam.k; cam.y = my - (my - cam.y) * k / cam.k; cam.k = k;
   applyCam();
 }
-function fit() { cam.to = camFor(shown()); moved = false; animate(320); }
+function fit() { cam.to = allCam(); moved = false; refit = allCam; animate(320); }
 
 // ---------- what a tap does ----------
 function toggle(n) {
   const was = { x: n.tx, y: n.ty };
   moved = true;
-  if (isOpen(n)) { open.delete(n.id); forced.delete(n.id); } else open.add(n.id);
+  if (isOpen(n)) { open.delete(n.id); forced.delete(n.id); full.delete(n.id); } else open.add(n.id);
+  kept.add(n.id);                 // a branch you have touched stays in view when its list is cut short
   saveOpen();
   layout();
   // The branch you tapped stays under your finger; the rest of the map makes room around it.
   cam.to = { x: cam.x - (n.tx - was.x) * cam.k, y: cam.y - (n.ty - was.y) * cam.k, k: cam.k };
   if (isOpen(n)) cam.to = nudgeTo([n, ...n.vis]);
+  draw();
+}
+// "ほか N点": show every point of that branch. Closing the branch brings back the short list.
+function showAll(more) {
+  const n = more.owner, was = { x: n.tx, y: n.ty };
+  moved = true;
+  full.add(n.id);
+  layout();
+  cam.to = { x: cam.x - (n.tx - was.x) * cam.k, y: cam.y - (n.ty - was.y) * cam.k, k: cam.k };
   draw();
 }
 function setLit() {
@@ -315,6 +376,7 @@ function setLit() {
 }
 function select(id, travel = false) {
   state.sel = id && byPoint.has(id) ? id : null;
+  if (state.sel) kept.add(state.sel);
   const n = state.sel && pointNode.get(state.sel);
   if (n) { for (let p = parentOf.get(n.id); p; p = parentOf.get(p.id)) open.add(p.id); saveOpen(); }
   setLit();
@@ -331,16 +393,20 @@ function select(id, travel = false) {
 function activate(id) {
   const n = byId.get(id);
   if (!n) return;
-  if (n.type === "root") fit(); else if (n.type === "point") select(n.point.id); else toggle(n);
+  if (n.type === "root") fit(); else if (n.type === "point") select(n.point.id); else if (n.type === "more") showAll(n); else toggle(n);
 }
+let beforeSearch = null;                 // where the map was when the search began, to go back to when it ends
 function search(q) {
+  if (q && !state.q) beforeSearch = { x: (cam.to || cam).x, y: (cam.to || cam).y, k: (cam.to || cam).k };
   state.q = q; state.sel = null;
   forced = new Set();
   const hits = setLit();
+  found = new Set(q ? hits.map(p => p.id) : []);
   if (q) for (const p of hits) for (let n = parentOf.get(pointNode.get(p.id).id); n; n = parentOf.get(n.id)) forced.add(n.id);
   showPanel();
   layout();
-  if (q && hits.length) cam.to = camFor(hits.map(p => pointNode.get(p.id)), 1);
+  if (q && hits.length) cam.to = camFor(hits.map(p => pointNode.get(p.id)), 1, 0.12);
+  else if (!q && beforeSearch) { cam.to = beforeSearch; beforeSearch = null; }
   draw();
   stats(q ? hits.length : null);
 }
@@ -436,7 +502,7 @@ svg.addEventListener("pointermove", e => {
   if (ptrs.size === 2 && pinch) {
     const [a, b] = [...ptrs.values()], mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
     cam.to = null; moved = true;
-    cam.k = clamp(pinch.k * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d, 0.2, 2.6);
+    cam.k = clamp(pinch.k * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d, MIN_K, 2.6);
     cam.x = mx - pinch.wx * cam.k; cam.y = my - pinch.wy * cam.k;
     applyCam();
   } else if (ptrs.size === 1 && drag) {
@@ -490,7 +556,7 @@ new ResizeObserver(() => {
   const W = box.clientWidth, H = box.clientHeight;
   if (root && (W !== seenW || H !== seenH)) {
     cam.to = null;
-    if (moved) { cam.x += (W - seenW) / 2; cam.y += (H - seenH) / 2; } else Object.assign(cam, camFor(shown()));
+    if (moved || !refit) { cam.x += (W - seenW) / 2; cam.y += (H - seenH) / 2; } else Object.assign(cam, refit());
     applyCam();
   }
   seenW = W; seenH = H;
@@ -509,12 +575,13 @@ function start() {
     $("#empty").textContent = EMPTY[book.state] || EMPTY.error;
     return;
   }
-  state.sel = null; forced = new Set(); lit = null; state.q = ""; $("#q").value = "";
+  state.sel = null; forced = new Set(); full = new Set(); kept = new Set(); found = new Set(); lit = null; state.q = ""; $("#q").value = "";
+  beforeSearch = null;
   panel.hidden = true;
   setTree();
   layout();
-  Object.assign(cam, camFor(shown()), { to: null });
-  moved = false;
+  Object.assign(cam, homeCam(), { to: null });
+  moved = false; refit = homeCam;
   applyCam();
   draw(0);
 }
