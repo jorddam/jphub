@@ -1,7 +1,8 @@
 // What the map's reader does with Gyokan's file. Every record here is made up.
 
 import { test, eq, ok } from "./harness.js";
-import { FIELDS, matchField, matchKind, normalise, buildTree, related, matches, tidy, fold, capList, FRESH_DAYS, GROUP_AT } from "../lib/points.js";
+import { FIELDS, matchField, matchKind, normalise, buildTree, related, matches, tidy, fold, capList, FRESH_DAYS, GROUP_AT,
+  applyEdits, editPoint, editTopic, topicKey } from "../lib/points.js";
 
 const DAY = 86400e3, NOW = Date.UTC(2026, 10, 24);
 const sitting = (id, book, author, points, extra = {}) =>
@@ -210,6 +211,89 @@ test("short list: the newest few, anything that must be seen, and how many are l
   eq(capList(kids.slice(0, 9), 8).hidden, 0, "one over the limit is shown whole");
   eq(capList(kids.slice(0, 10), 8).hidden, 2);
   eq(capList(kids, 8, () => true).hidden, 0);
+});
+
+// Six points: three on 歴史/江戸, two on 歴史/明治, one on 科学/脳.
+const six = () => normalise(file(sitting("s1", "本A", "甲", [pt("江戸1", { topic: "江戸" }), pt("江戸2", { topic: "江戸" }), pt("江戸3", { topic: "江戸" }),
+  pt("明治1", { topic: "明治" }), pt("明治2", { topic: "明治" }), pt("脳1", { field: "科学", topic: "脳" })]))).points;
+const where = points => Object.fromEntries(points.map(p => [p.head, `${p.field}/${p.topic}`]));
+const H = { field: "history" }, S = { field: "science" };
+
+test("edits: with none, or with a broken file, the points are as they were", () => {
+  const base = six();
+  for (const e of [null, undefined, {}, { points: 3, topics: "x" }, { points: { "s1:0": "x" }, topics: { "history/江戸": 5 } }]) {
+    const r = applyEdits(base, e);
+    eq(where(r.points), where(base)); eq([r.hidden.length, r.rules.length, r.points.some(p => p.edited || p.own)], [0, 0, false]);
+  }
+});
+test("edits: one point moved to another field and topic; the others stay; it can be put back", () => {
+  const base = six(), e = editPoint(null, "s1:0", { field: "science", topic: "脳" }), r = applyEdits(base, e);
+  eq(where(r.points)["江戸1"], "science/脳"); eq(where(r.points)["江戸2"], "history/江戸");
+  const p = r.points.find(p => p.head === "江戸1");
+  eq([p.edited, p.own, p.was], [true, true, { field: "history", topic: "江戸" }]);
+  eq(base[0].field, "history", "the points read from Gyokan are not changed");
+  eq(where(applyEdits(base, editPoint(e, "s1:0", null)).points), where(base));
+  eq(editPoint(e, "s1:0", null), { v: 1, points: {}, topics: {} });
+});
+test("edits: a hidden point is left out and listed; showing it again brings it back, keeping its move", () => {
+  const base = six();
+  let e = editPoint(editPoint(null, "s1:3", { field: "science", topic: "脳" }), "s1:3", { hidden: true });
+  let r = applyEdits(base, e);
+  eq([r.points.length, r.hidden.map(p => p.head)], [5, ["明治1"]]);
+  e = editPoint(e, "s1:3", { hidden: false }); r = applyEdits(base, e);
+  eq([r.points.length, r.hidden.length, where(r.points)["明治1"]], [6, 0, "science/脳"]);
+  eq(editPoint(editPoint(null, "s1:3", { hidden: true }), "s1:3", { hidden: false }), { v: 1, points: {}, topics: {} });
+});
+test("edits: a topic renamed takes all its points, and lists the rule", () => {
+  const r = applyEdits(six(), editTopic(null, { ...H, topic: "江戸" }, { ...H, topic: "江戸時代" }));
+  eq(where(r.points), { "江戸1": "history/江戸時代", "江戸2": "history/江戸時代", "江戸3": "history/江戸時代", "明治1": "history/明治", "明治2": "history/明治", "脳1": "science/脳" });
+  eq(r.rules, [{ key: "history/江戸", field: "history", topic: "江戸時代", wasField: "history", was: "江戸" }]);
+  eq(r.points.filter(p => p.own).length, 0, "a rule is not a move of the point's own");
+});
+test("edits: a topic given another topic's name is merged into it; a topic can move to another field", () => {
+  const merged = applyEdits(six(), editTopic(null, { ...H, topic: "明治" }, { ...H, topic: "江戸" }));
+  eq(buildTree(merged.points, "field", NOW).kids[0].kids.map(t => [t.label, t.count]), [["江戸", 5]]);
+  const moved = applyEdits(six(), editTopic(null, { ...H, topic: "明治" }, { ...S, topic: "明治" }));
+  eq(where(moved.points)["明治1"], "science/明治");
+  eq(buildTree(moved.points, "field", NOW).kids.map(f => [f.label, f.count]), [["歴史", 3], ["科学", 3]]);
+});
+test("edits: a rule also takes points that arrive later under the old name", () => {
+  const e = editTopic(null, { ...H, topic: "江戸" }, { ...H, topic: "近世" });
+  const later = normalise(file(sitting("s9", "本B", "乙", [pt("あとから", { topic: "江戸" }), pt("全角", { topic: "　江戸 " })]))).points;
+  eq(where(applyEdits(later, e).points), { "あとから": "history/近世", "全角": "history/近世" });
+});
+test("edits: rules are followed in a chain, and renaming back does not go round in circles", () => {
+  let e = editTopic(null, { ...H, topic: "江戸" }, { ...H, topic: "近世" });
+  e = editTopic(e, { ...H, topic: "近世" }, { ...H, topic: "江戸時代" });
+  eq(where(applyEdits(six(), e).points)["江戸1"], "history/江戸時代");
+  e = editTopic(e, { ...H, topic: "江戸時代" }, { ...H, topic: "江戸" });          // back to the start
+  eq(where(applyEdits(six(), e).points), where(six()));
+  const loop = { topics: { "history/江戸": { field: "history", topic: "明治" }, "history/明治": { field: "history", topic: "江戸" } } };
+  eq(applyEdits(six(), loop).points.length, 6, "a file with a loop in it still gives every point a place");
+});
+test("edits: a point moved into a topic goes along when that topic is renamed", () => {
+  let e = editPoint(null, "s1:5", { field: "history", topic: "江戸" });
+  e = editTopic(e, { ...H, topic: "江戸" }, { ...H, topic: "江戸時代" });
+  const p = applyEdits(six(), e).points.find(p => p.head === "脳1");
+  eq([p.field, p.topic, p.own, p.was], ["history", "江戸時代", true, { field: "science", topic: "脳" }]);
+});
+test("edits: a rule that only changes the spelling changes the name shown, not where the points are", () => {
+  const base = normalise(file(sitting("s1", "本A", "甲", [pt("一", { field: "技術", topic: "ai" }), pt("二", { field: "技術", topic: "AI" })]))).points;
+  eq(base.map(p => p.topic), ["ai", "ai"]);
+  const r = applyEdits(base, editTopic(null, { field: "tech", topic: "ai" }, { field: "tech", topic: "AI" }));
+  eq([r.points.map(p => p.topic), r.points.some(p => p.edited)], [["AI", "AI"], false]);
+});
+test("edits: a field that doesn't exist is ignored, in a point's move and in a rule", () => {
+  const base = six();
+  eq(where(applyEdits(base, { points: { "s1:0": { field: "nowhere", topic: "" } }, topics: { "history/明治": { field: "nowhere", topic: "x" } } }).points), where(base));
+  eq(editTopic(null, { ...H, topic: "江戸" }, { field: "nowhere", topic: "x" }), { v: 1, points: {}, topics: {} });
+  eq(where(applyEdits(base, { points: { "s1:0": { field: "nowhere", topic: "明治" } } }).points)["江戸1"], "history/明治", "the topic half of a move still counts");
+});
+test("edits: the edit helpers never change the object they are given", () => {
+  const e = editPoint(null, "a", { hidden: true }), copy = JSON.stringify(e);
+  editPoint(e, "b", { field: "science", topic: "脳" }); editPoint(e, "a", null); editTopic(e, { ...H, topic: "江戸" }, { ...H, topic: "明治" });
+  eq(JSON.stringify(e), copy);
+  eq(topicKey("history", " ＡＩ "), "history/ai");
 });
 
 test("connections: most shared keywords first, then newest; none without keywords", () => {

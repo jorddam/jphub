@@ -6,7 +6,8 @@
 
 import { h, $, clear, topbar, setSync, local, setLocal, toast } from "../lib/core.js";
 import * as data from "../lib/data.js";
-import { KINDS, FRESH_DAYS, fieldOf, kindJa, loadPoints, buildTree, related, matches, capList } from "../lib/knowledge.js";
+import { FIELDS, KINDS, FRESH_DAYS, fieldOf, kindJa, loadPoints, buildTree, related, matches, capList,
+  applyEdits, editPoint, editTopic, saveEdits, tidy, fold } from "../lib/knowledge.js";
 
 topbar("notebook");
 
@@ -47,6 +48,9 @@ const MIN_K = 0.02, READ_K = 0.5;
 
 const state = { lens: local("jphub.mapLens", "field") === "book" ? "book" : "field", q: "", sel: null };
 let book = { state: "ok", points: [], report: null, stale: false };
+let base = [], edits = null;             // the points as Gyokan saved them, and your corrections to them
+let hiddenPts = [], rules = [];          // what those corrections come to: points hidden, topic rules in force
+let panelMode = null;                    // "edits" while the panel lists the corrections instead of a point
 let byPoint = new Map();                 // point id → point
 let root = null, byId = new Map(), parentOf = new Map(), pointNode = new Map(), branches = [];
 let open = new Set();                    // branches the reader has opened (remembered per view)
@@ -374,9 +378,9 @@ function setLit() {
   for (const p of pts || []) for (let n = pointNode.get(p.id); n; n = parentOf.get(n.id)) lit.add(n.id);
   return pts;
 }
-function select(id, travel = false) {
+function select(id, travel = false, ms) {
   state.sel = id && byPoint.has(id) ? id : null;
-  if (state.sel) kept.add(state.sel);
+  if (state.sel) { kept.add(state.sel); panelMode = null; }
   const n = state.sel && pointNode.get(state.sel);
   if (n) { for (let p = parentOf.get(n.id); p; p = parentOf.get(p.id)) open.add(p.id); saveOpen(); }
   setLit();
@@ -388,7 +392,7 @@ function select(id, travel = false) {
     cam.to = travel || cam.k < 0.7 ? { k, x: a.W / 2 - k * (n.tx + n.dir * n.w / 2), y: a.H / 2 - k * n.ty } : nudgeTo([n]);
     moved = true;
   }
-  draw();
+  draw(ms);
 }
 function activate(id) {
   const n = byId.get(id);
@@ -415,13 +419,17 @@ function search(q) {
 const dateJa = t => { if (!t) return ""; const d = new Date(t); return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`; };
 function showPanel() {
   const p = byPoint.get(state.sel);
-  if (!p) { panel.hidden = true; return; }
+  if (!p) {
+    if (panelMode === "edits" && editCount()) showEdits(); else { panelMode = null; panel.hidden = true; }
+    return;
+  }
   const f = fieldOf(p.field), rel = related(book.points, p);
   const where = [p.chapter || (p.ch != null ? "§" + p.ch : ""), p.pos != null ? Math.round(p.pos * 100) + "%" : ""].filter(Boolean).join(" · ");
   clear(panel).append(...[
     h("button", { class: "close", type: "button", text: "閉じる ✕", onclick: () => select(null) }),
     h("div", { class: "crumb" }, h("span", { class: "sw", style: { background: f.c } }), h("span", { text: `${f.ja} › ${p.topic}` }),
       p.kind ? h("span", { class: "tag jp", text: kindJa(p.kind) }) : null),
+    p.was ? h("p", { class: "was", text: `もとは ${fieldOf(p.was.field).ja} › ${p.was.topic}` }) : null,
     h("h2", { text: p.head }),
     p.text && p.text !== p.head ? h("p", { class: "say", text: p.text }) : null,
     p.quote ? h("blockquote", { class: "src", text: p.quote }) : null,
@@ -436,9 +444,115 @@ function showPanel() {
         h("span", { class: "m", text: `${r.shared.join("・")} — ${r.point.book}` })))))) : null,
     p.summary ? h("details", { class: "sum" }, h("summary", { text: "この回の要約" }), h("p", { text: p.summary })) : null,
     h("div", { class: "btnrow" }, h("a", { class: "btn", href: "./?work=" + encodeURIComponent(p.book), text: "この本のノート" })),
+    editRow(p),
   ].filter(Boolean));
   panel.hidden = false;
   panel.scrollTop = 0;
+}
+
+// ---------- your corrections: move a point, fix a topic, hide a point ----------
+// They are saved in the hub's own data (state/knowledge.json) and laid over what Gyokan saved; Gyokan's file is never written.
+function recompute() {
+  const r = applyEdits(base, edits);
+  book.points = r.points; hiddenPts = r.hidden; rules = r.rules;
+  byPoint = new Map(book.points.map(p => [p.id, p]));
+}
+const editCount = () => hiddenPts.length + rules.length + book.points.filter(p => p.own).length;
+
+// Draw the map again after a correction, without sending the reader back to the start. selId: the point to show afterwards.
+function redraw(selId) {
+  recompute();
+  if (!book.points.length) { start(); return; }
+  state.q = ""; $("#q").value = ""; found = new Set(); forced = new Set(); beforeSearch = null;
+  setTree();
+  stats(null);
+  if (selId && byPoint.has(selId)) { select(selId, true, 0); return; }
+  state.sel = null; lit = null;
+  showPanel();
+  layout();
+  draw(0);
+}
+
+// Make a correction: show it at once, then save it. op(file) returns the corrected file, and is applied again
+// to the newest saved copy, so a correction made on another device in the meantime is kept.
+let saving = Promise.resolve(), waiting = 0;
+function commit(op, selId) {
+  edits = op(edits);
+  redraw(selId);
+  waiting++;
+  saving = saving.then(() => saveEdits(op)).then(saved => {
+    // What was saved can differ from what is shown only if another device saved something in between.
+    if (--waiting === 0 && JSON.stringify(saved) !== JSON.stringify(edits)) { edits = saved; redraw(state.sel); }
+  }).catch(e => {
+    waiting = 0;
+    console.error(e);
+    toast("保存できませんでした。通信を確かめて、もう一度試してください。", 6000);
+    return load();                // back to what is really saved
+  });
+  return saving;
+}
+
+function editRow(p) {
+  const row = h("div", { class: "edit" });
+  const link = (text, onclick) => h("button", { class: "linkbtn", type: "button", text, onclick });
+  const idle = () => row.replaceChildren(h("div", { class: "editrow" },
+    link("点を移す", () => form("point")), link("主題を直す", () => form("topic")),
+    link("隠す", () => { commit(e => editPoint(e, p.id, { hidden: true }), null); toast("隠しました。上の「編集」から戻せます。", 5000); }),
+    p.own ? link("元に戻す", () => commit(e => editPoint(e, p.id, null), p.id)) : null));
+  const form = what => {
+    const topicsIn = f => [...new Set(book.points.filter(o => o.field === f).map(o => o.topic))];
+    const field = h("select", { "aria-label": "分野" }, FIELDS.map(f => h("option", { value: f.id, text: f.ja })));
+    field.value = p.field;
+    const listId = "topics-" + what, names = h("datalist", { id: listId });
+    const fill = () => names.replaceChildren(...topicsIn(field.value).map(t => h("option", { value: t })));
+    fill();
+    field.addEventListener("change", fill);
+    const name = h("input", { type: "text", value: p.topic, list: listId, maxlength: "40", autocomplete: "off", "aria-label": "主題" });
+    const count = book.points.filter(o => o.field === p.field && o.topic === p.topic).length;
+    const save = () => {
+      let topic = tidy(name.value) || "未分類";
+      // The name of a topic that is already there means that topic, however it was typed;
+      // unless this is the topic itself, where changing the spelling is the point.
+      const there = topicsIn(field.value).find(t => fold(t) === fold(topic));
+      if (there && !(what === "topic" && field.value === p.field && fold(topic) === fold(p.topic))) topic = there;
+      if (field.value === p.field && topic === p.topic) { idle(); return; }
+      const to = { field: field.value, topic };
+      if (what === "point") commit(e => editPoint(e, p.id, to), p.id);
+      else commit(e => editTopic(e, { field: p.field, topic: p.topic }, to), p.id);
+    };
+    name.addEventListener("keydown", e => { if (e.key === "Enter") save(); else if (e.key === "Escape") idle(); });
+    row.replaceChildren(h("div", { class: "editform" },
+      h("span", { class: "lab", text: what === "point" ? "この点を移す" : `主題「${p.topic}」を直す` }),
+      field, name, names,
+      h("p", { class: "hint", text: what === "point" ? "この点だけが移ります。"
+        : `この主題の ${count}点すべてが移ります。すでにある主題の名前にすると、一つにまとまります。` }),
+      h("div", { class: "btnrow" }, h("button", { class: "btn primary", type: "button", text: "保存", onclick: save }),
+        h("button", { class: "btn", type: "button", text: "やめる", onclick: idle }))));
+    name.focus({ preventScroll: true });
+    name.select();
+    panel.scrollTop = panel.scrollHeight;       // the form is the last thing in the panel: bring it into view
+  };
+  idle();
+  return row;
+}
+
+// Everything you have corrected, each with a way back.
+function showEdits() {
+  const place = (f, t) => `${fieldOf(f).ja} › ${t}`;
+  const line = (label, sub, undo) => h("li", {}, h("div", {}, h("span", { class: "t", text: label }), h("span", { class: "m", text: sub })),
+    h("button", { class: "linkbtn", type: "button", text: "戻す", onclick: undo }));
+  const part = (title, rows) => rows.length ? h("div", { class: "field" }, h("span", { class: "lab", text: `${title}（${rows.length}）` }), h("ul", { class: "undo" }, rows)) : null;
+  panel.replaceChildren(...[
+    h("button", { class: "close", type: "button", text: "閉じる ✕", onclick: () => { panelMode = null; showPanel(); } }),
+    h("h2", { text: "編集したもの" }),
+    h("p", { class: "hint", text: "ここでの編集はハブだけのものです。行間のデータは変わりません。" }),
+    part("隠した点", hiddenPts.map(p => line(p.head, p.bookLabel || p.book, () => commit(e => editPoint(e, p.id, { hidden: false }), null)))),
+    part("直した主題", rules.map(r => line(place(r.wasField, r.was), "→ " + place(r.field, r.topic),
+      () => commit(e => editTopic(e, { field: r.wasField, topic: r.was }, null), null)))),
+    part("移した点", book.points.filter(p => p.own).map(p => line(p.head, (p.was ? place(p.was.field, p.was.topic) + " → " : "") + place(p.field, p.topic),
+      () => commit(e => editPoint(e, p.id, null), null)))),
+  ].filter(Boolean));
+  panel.hidden = false;
 }
 
 // ---------- toolbar ----------
@@ -450,6 +564,10 @@ function stats(found) {
   // Records the reader could not use, or could not file: say so, and say why when asked.
   const r = book.report, odd = r ? r.skipped + r.unfiled : 0;
   if (odd && found == null) el.append(pts.length ? " · " : "", h("button", { class: "linkbtn", type: "button", text: `要確認 ${odd}件`, onclick: () => toast(oddities(r), 9000) }));
+  // Your own corrections: how many, and a way to see them and take them back.
+  const mine = editCount();
+  if (mine && found == null) el.append(pts.length || odd ? " · " : "", h("button", { class: "linkbtn", type: "button", text: `編集 ${mine}件`,
+    onclick: () => { panelMode = "edits"; if (state.sel) select(null); else showPanel(); } }));
 }
 function oddities(r) {
   const out = [];
@@ -526,7 +644,7 @@ function lift(e) {
   const d = drag;
   drag = null; pinch = null;
   if (!d || d.moved || e.type === "pointercancel") return;
-  if (d.id) activate(d.id); else if (state.sel) select(null);
+  if (d.id) activate(d.id); else if (state.sel || panelMode) { panelMode = null; select(null); }
 }
 svg.addEventListener("pointerup", lift);
 svg.addEventListener("pointercancel", lift);
@@ -538,7 +656,7 @@ svg.addEventListener("wheel", e => {
 svg.addEventListener("keydown", e => {
   const id = e.target.closest?.("[data-id]")?.dataset.id;
   if (id && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); activate(id); }
-  else if (e.key === "Escape" && state.sel) select(null);
+  else if (e.key === "Escape" && (state.sel || panelMode)) { panelMode = null; select(null); }
 });
 const mid = () => ({ x: area().W / 2, y: area().H / 2 });
 $("#zin").addEventListener("click", () => zoomAt(mid().x, mid().y, 1.3));
@@ -554,7 +672,7 @@ addEventListener("resize", sizeBox);
 let seenW = 0, seenH = 0;
 new ResizeObserver(() => {
   const W = box.clientWidth, H = box.clientHeight;
-  if (root && (W !== seenW || H !== seenH)) {
+  if (root && seenW && (W !== seenW || H !== seenH)) {
     cam.to = null;
     if (moved || !refit) { cam.x += (W - seenW) / 2; cam.y += (H - seenH) / 2; } else Object.assign(cam, refit());
     applyCam();
@@ -571,10 +689,11 @@ function start() {
   document.querySelector(".mctl").hidden = !any;
   stats(null);
   if (!any) {
-    panel.hidden = true;
-    $("#empty").textContent = EMPTY[book.state] || EMPTY.error;
+    panel.hidden = true; panelMode = null;
+    $("#empty").textContent = hiddenPts.length ? "すべての点を隠しています。上の「編集」から戻せます。" : EMPTY[book.state] || EMPTY.error;
     return;
   }
+  panelMode = null;
   state.sel = null; forced = new Set(); full = new Set(); kept = new Set(); found = new Set(); lit = null; state.q = ""; $("#q").value = "";
   beforeSearch = null;
   panel.hidden = true;
@@ -582,6 +701,7 @@ function start() {
   layout();
   Object.assign(cam, homeCam(), { to: null });
   moved = false; refit = homeCam;
+  seenW = box.clientWidth; seenH = box.clientHeight;      // the view above is for this size; only a later change needs handling
   applyCam();
   draw(0);
 }
@@ -590,7 +710,8 @@ async function load() {
   setSync("busy", "読み込み中…");
   try {
     book = await loadPoints();
-    byPoint = new Map(book.points.map(p => [p.id, p]));
+    base = book.base || []; edits = book.edits || null;
+    recompute();
     sizeBox();
     lensButtons();
     legend();
@@ -602,6 +723,7 @@ async function load() {
   } catch (e) {
     console.error(e);
     book = { state: "error", points: [], report: null, stale: true };
+    base = []; edits = null; hiddenPts = []; rules = [];
     byPoint = new Map();
     start();
     setSync("bad", "読み込めませんでした", () => load());
